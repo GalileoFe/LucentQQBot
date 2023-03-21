@@ -14,6 +14,15 @@
 # Vits 语音 🎤
 该机器人还包含了 [@Moegoe](https://github.com/LlmKira/MoeGoe) Vits 语音功能。只需在消息中提及机器人并使用关键词"语音开启"，即可启用语音功能。该机器人使用的 Vits 模型可以根据需要进行自定义。
 
+# 默认Vits Model
+## Chinese & Japanese
+Nene + Nanami + Rong + Tang<br>默认speaker = 2 (小茸)
+
+Download [Config File](https://sjtueducn-my.sharepoint.com/:u:/g/personal/cjang_cjengh_sjtu_edu_cn/EYZfZuW5jtxIqIesYOpFuB4BVWtItUIO2f9YxGQZelRxaQ?e=MCZPCL)
+
+Download [Model](https://sjtueducn-my.sharepoint.com/:u:/g/personal/cjang_cjengh_sjtu_edu_cn/EQ0IKHchgzZAt0E6GryW17EBsIlIkmby6BcO9FtoODjwNQ?e=5uzWtj) (1374 epochs)
+
+
 # 使用方法 🛠️
 克隆本仓库
 
