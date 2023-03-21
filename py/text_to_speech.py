@@ -12,8 +12,8 @@ text记得加[]tag, 不然说不出话.
 async def gen_speech(text, voice, path) -> None:
     params = TTS.TTS_REQ(task_id=0,
                      text="[ZH]"+text+"[ZH]",
-                     model_name="G_latest.pth",
-                     speaker_id=0,
+                     model_name="1374_epochs.pth",
+                     speaker_id=2,
                      audio_type="mp3"
                      )
 
