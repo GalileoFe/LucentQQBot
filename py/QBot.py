@@ -6,81 +6,270 @@ from copy import deepcopy
 from flask import request, Flask
 import openai
 import requests
-from CustomDic import CustomDict
 from text_to_image import text_to_image
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
+import re
+import threading
+import importlib
 import tiktoken
-from text_to_speech import gen_speech
-import asyncio
-import adv # 导入adv.py
-import banlist # 导入banlist.py
-from txtReader import read_txt_files
+import adv  # 导入adv.py
+import banlist  # 导入banlist.py
 
-global config_data
-with open("config.json", "r",
-          encoding='utf-8') as jsonfile:
+with open("config.json", "r", encoding='utf-8') as jsonfile:
     config_data = json.load(jsonfile)
     qq_no = config_data['qq_bot']['qq_no']
 
-# 注：安全人格即用户在无权限（权限指是否位于advanced_users组中）时只能使用的人格，若您不需要限制，请把此值设为默认人格的序号
-safe_preset = 0 # 安全人格（序号与人格简述的序号对应）
+with open("config_individual_wakewords.json", "r", encoding='utf-8') as jsonfile:
+    awaken = json.load(jsonfile)
+
+if config_data["VITS"]["voice_enable"] == 1:
+    from CustomDic import CustomDict
+    from text_to_speech import gen_speech
+    from txtReader import read_txt_files
+    import asyncio
+
+def config_wakewords_reload():
+    with open("config_individual_wakewords.json", "r", encoding='utf-8') as jsonfile:
+        data = json.load(jsonfile)
+    return data
+
+def banlist_reload():
+    importlib.reload(banlist)
+    ban_person = banlist.ban_person
+    ban_group = banlist.ban_group
+
+def config_group_data():
+    with open("config_group.json", "r", encoding='utf-8') as jsonfile:
+        data = json.load(jsonfile)
+    return data
+
+def config_group_relation_data():
+    with open("config_group_relation.json", "r", encoding='utf-8') as jsonfile:
+        data = json.load(jsonfile)
+    return data
+
+# 读取人格文件名
+def data_presets_name_fc():
+    # 人格目录
+    folder_path = 'presets'
+
+    # 初始化字典
+    presets_name = {}
+
+    # 遍历文件夹内所有文件
+    i = 0
+    for filename in os.listdir(folder_path):
+        # 如果文件是txt文件
+        if filename.endswith('.txt'):
+            # 去除文件名后缀
+            name = os.path.splitext(filename)[0]
+            # 将文件名存储到字典中
+            presets_name[i] = name
+            i += 1
+    return presets_name
+data_presets_name = data_presets_name_fc()
+
+
+# 读取人格文件名空内容
+def data_presets_fc():
+    # 人格目录
+    folder_path = 'presets'
+
+    # 初始化字典
+    presets = {}
+
+    # 遍历文件夹内所有文件
+    for filename in os.listdir(folder_path):
+        # 如果文件是txt文件
+        if filename.endswith('.txt'):
+            # 去除文件名后缀
+            name = os.path.splitext(filename)[0]
+            # 将文件名和空内容存储到字典中
+            presets[name] = ""
+    return presets
+data_presets = data_presets_fc()
+
+
+# 读取人格文件内容
+def data_presets_r(presets_path, presets_name):
+    # 人格文件
+    folder_path_flie = presets_path + presets_name + ".txt"
+    # 读取文件内容
+    with open(folder_path_flie, 'r', encoding='utf-8') as file:
+        content = file.read()
+    return content
+
+
+# 读取人格文件前缀内容
+def data_presets_fc1():
+    # 人格目录
+    folder_path1 = 'presets1'
+
+    # 初始化字典
+    presets1 = {}
+
+    # 遍历文件夹内所有文件
+    for filename in os.listdir(folder_path1):
+        # 如果文件是txt文件
+        if filename.endswith('.txt'):
+            # 去除文件名后缀
+            name = os.path.splitext(filename)[0]
+            # 将文件名和内容存储到字典中
+            presets1[name] = ""
+    return presets1
+data_presets1 = data_presets_fc1()
+
+# 读取人格文件后缀内容
+def data_presets_fc2():
+    # 人格目录
+    folder_path2 = 'presets2'
+
+    # 初始化字典
+    presets2 = {}
+
+    # 遍历文件夹内所有文件
+    for filename in os.listdir(folder_path2):
+        # 如果文件是txt文件
+        if filename.endswith('.txt'):
+            # 去除文件名后缀
+            name = os.path.splitext(filename)[0]
+            # 将文件名和内容存储到字典中
+            presets2[name] = ""
+    return presets2
+data_presets2 = data_presets_fc2()
+
+
+# 检查JSON文件中是否存在指定的ID，如果存在则更新其对应的数据，否则创建新的键值对
+def update_config_group_json(id, presets, group_mode):
+    # 打开JSON文件并读取数据
+
+    with open("config_group.json", "r", encoding='utf-8') as f:
+        data = json.load(f)
+    # 检查是否存在指定的ID
+    if str(id) in data:
+        # 更新数据
+        data[str(id)]['presets'] = presets
+        data[str(id)]['group_mode'] = group_mode
+    else:
+        # 创建新的键值对并添加数据
+        data[str(id)] = {
+            'presets': presets,
+            'group_mode': group_mode
+        }
+
+    # 将更新后的数据写入JSON文件
+    with open('config_group.json', 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
+
+
+# 检查JSON文件中是否存在指定的ID，如果存在则更新其对应的数据，否则创建新的键值对
+def update_config_group_relation_json(gid, uid, relation, additional):
+    # 打开JSON文件并读取数据
+
+    with open("config_group_relation.json", "r", encoding='utf-8') as f:
+        data = json.load(f)
+    # 检查是否存在指定的ID
+    if str(gid) in data:
+        if not '默认' in data[str(gid)]:
+            # 创建新的键值对并添加数据
+            data[str(gid)]['默认'] = {
+                'relation': "",
+                'additional': ""
+            }
+    else:
+        # 创建新的键值对并添加数据
+        data[str(gid)] = {
+            '默认':{
+                'relation': "",
+                'additional': ""
+            }
+        }
+    # 检查是否存在指定的ID
+    if str(gid) in data:
+        if str(uid) in data[str(gid)]:
+            # 更新数据
+            data[str(gid)][str(uid)]['relation'] = relation
+            data[str(gid)][str(uid)]['additional'] = additional
+        else:
+            # 创建新的键值对并添加数据
+            data[str(gid)][str(uid)] = {
+                'relation': relation,
+                'additional': additional
+            }
+    else:
+        # 创建新的键值对并添加数据
+        data[str(gid)] = {
+            str(uid):{
+                'relation': relation,
+                'additional': additional
+            }
+        }
+
+    # 将更新后的数据写入JSON文件
+    with open('config_group_relation.json', 'w', encoding='utf-8') as f:
+        json.dump(data, f, ensure_ascii=False)
+
 
 # 管理员QQ(可以添加权限和切换群聊对话模式，可设置多个)
-moderator_qq = ["632714787"]
+moderator_qq = config_data["QBot"]["moderator_qq"]
 
-# 注：安全模式即用户在无权限时无法使用自定义人格，若您不需要限制，请把此值设为False
-safe_mode = False# 安全模式
+if (len(moderator_qq) == 0):
+    print("WARN:未设置moderator_qq")
 
-# 热加载, 监听characters, 会在字典被读取的时候重载presets目录, 并删去旧字典中未被覆盖到的过长的预设
-# 举例:presets目录下有5个预设, 删掉一个之后变成4个, 需要去掉第五个不然会导致问题
+# 注：安全模式即用户在无权限时无法使用自定义人格，若您不需要限制，请在config.json中设置
+safe_mode = config_data["QBot"]["safe_mode"] # 安全模式
 
+# 注：安全人格即用户在无权限（权限指是否位于advanced_users组中）时只能使用的人格，若您不需要限制，请在config.json中设置
+safe_presets = config_data["QBot"]["safe_presets"] # 安全人格列表
 
-def Characterlistener():
-    txtKeys = read_txt_files()
-    if len(character_description) - 2 > len(txtKeys):
-        toremove = []
-        for k, v in character_description.items():
-            if not int(str(k)) <= 0 and k not in txtKeys.keys():
-                toremove.append(k)
-        for k in toremove:
-            del character_description[k]
-    for i, key in enumerate(txtKeys.keys()):
-        character_description[i + 1] = key
-        config_data['chatgpt']['preset'+str(i+1)] = txtKeys[key]
+# 若safe_presets为空
+if (len(safe_presets) <= 0) and (safe_mode == 1):
+    safe_mode = 0 # 强制禁用safe_mode
+    print("ERROR:safe_presets列表为空，safe_mode已强制禁用")
 
+#默认人格
+data_default_preset = config_data["QBot"]["default_preset"]
 
 # 人格简述（序号X要与config.json中的"presetX"对应）
 # 例如：config.json中"preset0"对应的序号就为0
 # 注意：此处的简述为人格列表展示和人格切换用！此处不应填写详细人设，详细人设应填写于config.json
-initialData = {
-    -1:'自定义',  # '自定义'别改
-    0:'默认人设（孙吧嘴臭人）',
-    1:'Aoi(病娇少女)',
-    2:'音音',
-    3:'人设3号'
-}
+# character_description = 
 
-character_description = CustomDict(initialData, listener=Characterlistener)
-
-
-if safe_mode: # 若安全模式
-    session_config = {
-        'msg': [
-            {"role": "system", "content": config_data['chatgpt']['preset'+str(safe_preset)]} # 对话初始人格为安全人格
-        ],
-        "character": safe_preset,
-        'send_voice': False
-    }
+#语音回复
+config_data_send_voice = False
+    
+if safe_mode == 1: # 若安全模式
+    if data_default_preset in data_presets:
+        session_config = {
+            'msg': [
+                {"role": "system", "content": data_presets_r('presets\\', safe_presets[0])} # 对话初始人格为安全人格
+            ],
+            "character": -2
+        }
+    else:
+        session_config = {
+            'msg': [
+                {"role": "system", "content": ""} # 对话初始人格为GPT默认
+            ],
+            "character": -3
+        }
 else:
-    session_config = {
-        'msg': [
-            {"role": "system", "content": config_data['chatgpt']['preset0']} # 对话初始人格为默认人格
-        ],
-        "character": 0,
-        'send_voice': False
-    }
+    if data_default_preset in data_presets:
+        session_config = {
+            'msg': [
+                {"role": "system", "content": data_presets_r('presets\\', data_default_preset)} # 对话初始人格为默认人格
+            ],
+            "character": -2
+        }
+    else:
+        session_config = {
+            'msg': [
+                {"role": "system", "content": ""} # 对话初始人格为GPT默认
+            ],
+            "character": -3
+        }
 
 advanced_users = adv.advanced_users # 导入adv.py中的列表数据
 
@@ -88,13 +277,12 @@ advanced_users = adv.advanced_users # 导入adv.py中的列表数据
 ban_person = banlist.ban_person
 ban_group = banlist.ban_group
 
-# 正在使用群聊共享对话的群组
-general_enabled_group = []
-
 sessions = {}
 current_key_index = 0
 
-openai.api_base = "https://chat-gpt.aurorax.cloud/v1"
+# openai.api_base = "https://api.openai.com/v1"
+# openai.api_base = "https://chat-gpt.aurorax.cloud/v1"
+openai.api_base = config_data['openai']['endpoint']
 
 # 创建一个服务，把当前这个python文件当做一个服务
 server = Flask(__name__)
@@ -115,6 +303,15 @@ def credit_summary():
 # qq消息上报接口，qq机器人监听到的消息内容将被上报到这里
 @server.route('/', methods=["POST"])
 def get_message():
+    global config_data
+    global config_data_presets
+    global config_data_send_voice
+    global data_presets_name
+    global data_presets
+    global data_presets1
+    global data_presets2
+    global config_group_data
+    global awaken
     if request.get_json().get('message_type') == 'private':  # 如果是私聊信息
         uid = request.get_json().get('sender').get('user_id')  # 获取信息发送者的 QQ号码
         message = request.get_json().get('raw_message')  # 获取原始信息
@@ -124,8 +321,7 @@ def get_message():
         # 下面你可以执行更多逻辑，这里只演示与ChatGPT对话
         if message.strip().startswith('生成图像'):
             message = str(message).replace('生成图像', '')
-            session = get_chat_session('P' + str(uid))
-            msg_text = chat(message, session)  # 将消息转发给ChatGPT处理
+            msg_text = chat(message, 'P' + str(uid))  # 将消息转发给ChatGPT处理
             # 将ChatGPT的描述转换为图画
             print('开始生成图像')
             pic_path = get_openai_image(msg_text)
@@ -135,56 +331,109 @@ def get_message():
             print('开始直接生成图像')
             pic_path = get_openai_image(message)
             send_private_message_image(uid, pic_path, '')
+        elif message == "重新加载配置文件":
+            if (str(uid) in moderator_qq): # 若拥有权限
+                # 重新加载config.json、config_individual_wakewords.json和banlist.py
+                with open("config.json", "r", encoding='utf-8') as jsonfile:
+                    config_data = json.load(jsonfile)
+                awaken = config_wakewords_reload()
+                banlist_reload()
+                # 重新加载预设文本
+                data_presets_name = data_presets_name_fc()
+                data_presets = data_presets_fc()
+                data_presets1 = data_presets_fc1()
+                data_presets2 = data_presets_fc2()
+                print("配置文件已重新加载")
+                send_private_message(uid, "配置文件已重新加载", config_data_send_voice)  # 将重载完成发送给用户
+            else:
+                return "错误：没有足够权限来执行此操作."
         else:
-            # 获得对话session
-            session = get_chat_session('P' + str(uid))
             msg_text = chat(message, 'P' + str(uid))  # 将消息转发给ChatGPT处理
-            send_private_message(uid, msg_text, session['send_voice'])  # 将消息返回的内容发送给用户
+            send_private_message(uid, msg_text, config_data_send_voice)  # 将消息返回的内容发送给用户
 
     if request.get_json().get('message_type') == 'group':  # 如果是群消息
-       gid = request.get_json().get('group_id')  # 群号
-       uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
-       message = request.get_json().get('raw_message')  # 获取原始信息
-       # 判断当被@或触发关键词时才回答
-       if str("[CQ:at,qq=%s]" % qq_no) in message:
-           sender = request.get_json().get('sender')  # 消息发送者的资料
-           print("收到群聊消息：")
-           print(request.get_json().get('sender').get('nickname'))
-           print(message)
-           message = str(message).replace(str("[CQ:at,qq=%s]" % qq_no), '')
-           if (str("戳一戳[CQ:at") in message): # 判断是否为戳一戳请求
-               poke_request = True
-           else:
-               poke_request = False
-           if message.strip().startswith('生成图像'):
-               message = str(message).replace('生成图像', '')
-               msg_text = chat(message, 'G' + str(gid))  # 将消息转发给ChatGPT处理
-               # 将ChatGPT的描述转换为图画
-               print('开始生成图像')
-               pic_path = get_openai_image(msg_text)
-               send_group_message_image(gid, pic_path, uid, msg_text)
-           elif message.strip().startswith('直接生成图像'):
-               message = str(message).replace('直接生成图像', '')
-               print('开始直接生成图像')
-               pic_path = get_openai_image(message)
-               send_group_message_image(gid, pic_path, uid, '')
-           else:
-               # 戳一戳
-               if poke_request:
-                   message = re.sub(r"(.*)\[CQ:at, qq=(\d+)\]", '', message)
-                   msg_text = str(message).replace(str("[CQ:at"), str("[CQ:poke"))
-               else:
-                   global general_chat
-                   # 下面你可以执行更多逻辑，这里只演示与ChatGPT对话
-                   # 判断对话模式
-                   if (str(gid) in general_enabled_group):
-                       session = get_chat_session('P' + str(uid))
-                       msg_text = chat(message, 'P' + str(gid))  # 将消息转发给ChatGPT处理（群聊共享对话）
-                   else:
-                       session = get_chat_session('G' + str(uid))
-                       msg_text = chat(message, 'G' + str(uid))  # 将消息转发给ChatGPT处理（个人独立对话）
+        gid = request.get_json().get('group_id')  # 群号
+        uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
+        nickname = request.get_json().get('sender').get('nickname')  # 发言者的昵称
+        card = request.get_json().get('sender').get('card')  # 发言者的群名片
+        message_id = request.get_json().get('message_id')  # 消息ID
+        if card != '':
+           uname = card
+        else:
+            uname = nickname
+        message = request.get_json().get('raw_message')  # 获取原始信息
+        m_gid = 'G' + str(gid)   # G+群号
+        m_uid = 'G' + str(uid)  # G+发言者的qq号
+        # 判断对话模式
+        if not str(gid) in config_group_data():
+            update_config_group_json(str(gid), "", 0)
+        if config_group_data()[str(gid)]["group_mode"] != 0:
+            session = get_chat_session(m_gid) # 获得对话session
+        else:
+            session = get_chat_session(m_uid) # 获得对话session
+        data_presets_name_temp = data_presets_name
+        data_presets_name_temp[-1]= '自定义'
+        data_presets_name_temp[-2]= data_default_preset
+        data_presets_name_temp[-3]= ''
+        
 
-               send_group_message(gid, msg_text, uid, session['send_voice'])  # 将消息转发到群里
+        # 判断当被@或触发关键词时才回答
+        if (str("[CQ:at,qq=%s]" % qq_no) in message) or check_strings_exist(config_data['QBot']['general_wakewords'], message) or check_strings_exist(awaken[data_presets_name_temp[int(session['character'])]], message):
+            if (str(uid) in ban_person) or (str(gid) in ban_group):  # 若发言者qq号在ban_person中或群号在ban_group中
+                pass  # 不处理该消息
+            else:
+                sender = request.get_json().get('sender')  # 消息发送者的资料
+                print("收到群聊消息：")
+                print(message)
+                message = str(message).replace(str("[CQ:at,qq=%s] " % qq_no), '')
+                if (str("戳一戳[CQ:at") in message): # 判断是否为戳一戳请求
+                    poke_request = True
+                else:
+                    poke_request = False
+                if message.strip().startswith('生成图像'):
+                    message = str(message).replace('生成图像', '')
+                    msg_text = chat(message, 'G' + str(gid))  # 将消息转发给ChatGPT处理
+                    # 将ChatGPT的描述转换为图画
+                    print('开始生成图像')
+                    pic_path = get_openai_image(msg_text)
+                    send_group_message_image(gid, pic_path, uid, msg_text, message_id)
+                elif message.strip().startswith('直接生成图像'):
+                    message = str(message).replace('直接生成图像', '')
+                    print('开始直接生成图像')
+                    pic_path = get_openai_image(message)
+                    send_group_message_image(gid, pic_path, uid, '', message_id)
+                elif message == "重新加载配置文件":
+                    if (str(uid) in moderator_qq): # 若拥有权限
+                        # 重新加载config.json、config_individual_wakewords.json和banlist.py
+                        with open("config.json", "r", encoding='utf-8') as jsonfile:
+                            config_data = json.load(jsonfile)
+                        awaken = config_wakewords_reload()
+                        banlist_reload()
+                        # 重新加载预设文本
+                        data_presets_name = data_presets_name_fc()
+                        data_presets = data_presets_fc()
+                        data_presets1 = data_presets_fc1()
+                        data_presets2 = data_presets_fc2()
+                        print("配置文件已重新加载")
+                        send_private_message(uid, "配置文件已重新加载", config_data_send_voice)  # 将重载完成发送给用户
+                    else:
+                        return "错误：没有足够权限来执行此操作."
+                else:
+                    # 戳一戳
+                    if poke_request:
+                         message = re.sub(r"(.*)\[CQ:at,qq=(\d+)\]", '', message)
+                         msg_text = str(message).replace(str("[CQ:at"), str("[CQ:poke"))
+                    else:
+                        global general_chat
+                        # 下面你可以执行更多逻辑，这里只演示与ChatGPT对话
+                        # 判断对话模式
+                        if not str(gid) in config_group_data():
+                            update_config_group_json(str(gid), "", 0)
+                        if config_group_data()[str(gid)]["group_mode"] != 0:
+                            msg_text = chat(message, 'G' + str(gid))  # 将消息转发给ChatGPT处理（群聊共享对话）
+                        else:
+                            msg_text = chat(message, 'G' + str(uid))  # 将消息转发给ChatGPT处理（个人独立对话）
+                    send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群里 
 
     if request.get_json().get('post_type') == 'request':  # 收到请求消息
         print("收到请求消息")
@@ -237,8 +486,7 @@ def chatapi():
         return json.dumps(resu, ensure_ascii=False)
     print(data)
     try:
-        s = get_chat_session(data['id'])
-        msg = chat(data['msg'], s)
+        msg = chat(data['msg'], data['id'])
         if '查询余额' == data['msg'].strip():
             msg = msg.replace('\n', '<br/>')
         resu = {'code': 0, 'data': msg, 'id': data['id']}
@@ -270,6 +518,15 @@ def reset_chat():
 
 # 与ChatGPT交互的方法
 def chat(msg, sessionid):
+    global config_data
+    global config_data_presets
+    global config_data_send_voice
+    global data_presets_name
+    global data_presets
+    global data_presets1
+    global data_presets2
+    global config_group_data
+    global awaken
     try:
         global advanced_users
         global safe_mode
@@ -277,91 +534,192 @@ def chat(msg, sessionid):
             return '您好，我是人工智能助手，如果您有任何问题，请随时告诉我，我将尽力回答。\n如果您需要重置我们的会话，请回复`重置会话`'
         # 获得对话session
         session = get_chat_session(sessionid)
-        if '语音开启' == msg.strip():
-            session['send_voice'] = True
-            return '语音回复已开启'
-        if '语音关闭' == msg.strip():
-            session['send_voice'] = False
-            return '语音回复已关闭'
+        if '语音回复' == msg.strip():
+            uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
+            if config_data["VITS"]["voice_enable"] == 1:  # 管理员权限
+                if str(uid) in moderator_qq:  # 管理员权限
+                    if config_data_send_voice == False:
+                        config_data_send_voice = True
+                        print('语音回复已开启')
+                        return '语音回复已开启'
+                    else:
+                        config_data_send_voice = False
+                        print('语音回复已关闭')
+                        return '语音回复已关闭'
+                else:
+                    return "错误：没有足够权限来执行此操作."
+            else:
+                return "错误：配置文件未启用语音功能."
         if '重置会话' == msg.strip():
             # 清除对话内容但保留人设
             del session['msg'][1:len(session['msg'])]
+            if session['character'] == -2:
+                session['msg'][0] = {"role": "system", "content": data_presets_r('presets\\', data_default_preset)}
+            elif session['character'] > 0:
+                session['msg'][0] = {"role": "system", "content": data_presets_r('presets\\', data_presets_name[session['character']])}
             return "会话已重置"
         if '重置人格' == msg.strip():
             uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
-            if ((str(uid) in (advanced_users or moderator_qq)) or (safe_mode == False)):  # 若用户在advanced_users组中或安全模式关
-                # 清空对话内容并恢复预设人设
-                session['msg'] = [
-                    {"role": "system", "content": config_data['chatgpt']['preset0']}
-                ]
-                session['character'] = 0
-                return '人格已重置 当前人格：' + str(character_description[0])
+            if ((str(uid) in advanced_users) or (str(uid) in moderator_qq) or (safe_mode == 0)):  # 若用户在advanced_users组中或安全模式关
+                if data_default_preset in data_presets:
+                    # 清空对话内容并恢复预设人设
+                    session['msg'] = [
+                        {"role": "system", "content": data_presets_r('presets\\', data_default_preset)}
+                    ]
+                    session['character'] = -2
+                    return '人格已重置 当前人格：' + data_default_preset
+                else:
+                    # 清空对话内容并恢复预设人设
+                    session['msg'] = [
+                        {"role": "system", "content": ""}
+                    ]
+                    session['character'] = -3
+                    return '人格已重置 当前人格：' + "ChatGPT"
             else:
-                # 清空对话内容并恢复预设人设
-                session['msg'] = [
-                    {"role": "system", "content": config_data['chatgpt']['preset'+str(safe_preset)]}
-                ]
-                session['character'] = safe_preset
-                return '人格已重置 当前人格：' + str(character_description[safe_preset])
+                if data_default_preset in data_presets:
+                    # 清空对话内容并恢复预设人设
+                    session['msg'] = [
+                        {"role": "system", "content": data_presets_r('presets\\', safe_presets[0])}
+                    ]
+                    session['character'] = -2
+                    return '人格已重置 当前人格：' + safe_presets[0]
+                else:
+                    # 清空对话内容并恢复预设人设
+                    session['msg'] = [
+                        {"role": "system", "content": ""}
+                    ]
+                    session['character'] = -3
+                    return '人格已重置 当前人格：' + "ChatGPT"
         if '查询余额' == msg.strip():
             text = ""
             for i in range(len(config_data['openai']['api_key'])):
                 text = text + "Key_" + str(i + 1) + " 余额: " + str(round(get_credit_summary_by_index(i), 2)) + "美元\n"
             return text
         if '指令说明' == msg.strip():
-            return '指令如下(群内需@机器人或开头加上该人格的名字[仅预设])：\n1.[重置会话] 请发送 重置会话\n2.[切换人格] 请发送 "切换人格 人格预设"(发送"人格列表"可以查看所有人格预设)\n3.[自定义人格] 请发送 "自定义人格 <该人格的描述>"\n4.[人格列表] 请发送 人格列表\n5.[重置人格] 请发送 重置人格\n6.[忘记上一条对话]请发送 忘记上一条对话\n7.[当前人格] 请发送 当前人格\n8.[指令说明] 请发送 ' \
-                   '指令说明\n9.[查看群聊对话模式] 请发送 查看群聊对话模式\n10.[添加权限] 请管理员发送 "添加权限 QQ号"\n10.[切换安全模式] 请管理员发送 切换安全模式\n[语音开启][语音关闭]\n注意：\n重置会话不会清空人格,重置人格会重置会话!\n设置人格后人格将一直存在，除非重置人格或重启逻辑端!'
+            return '指令如下(群内需@机器人或开头加上该人格的名字[仅预设])：\n1.[重置会话] 请发送 重置会话\n2.[切换人格] 请发送 "切换人格 人格排序号（或人格名）"(发送"人格列表"可以查看所有人格预设)\n3.[自定义人格] 请发送 "自定义人格 <该人格的描述>"\n4.[人格列表] 请发送 人格列表\n5.[重置人格] 请发送 重置人格\n6.[忘记上一条对话]请发送 忘记上一条对话\n7.[当前人格] 请发送 当前人格\n8.[指令说明] 请发送 ' \
+                   '指令说明\n9.[查看群聊对话模式] 请发送 查看群聊对话模式\n10.[切换群聊对话模式] 请管理员发送 切换群聊对话模式\n11.[添加权限] 请管理员发送 "添加权限 QQ号"\n12.[切换安全模式] 请管理员发送 切换安全模式\n13.[重新加载配置文件] 热更新配置及新增（或删除）的人格文件\n14.[新增人格关系] 请发送"添加人格关系 QQ号-关系-关系前缀"\n15.[删除人格关系] 请发送"删除人格关系 QQ"\n16.[查看人格关系] 请发送"查看人格关系"\n注意：\n重置会话不会清空人格,重置人格会重置会话!\n设置人格后人格将一直存在，除非重置人格或重启逻辑端!'
+        '''
         if msg.strip().startswith('/img'):
             msg = str(msg).replace('/img', '')
             print('开始直接生成图像')
             pic_path = get_openai_image(msg)
             return "![](" + pic_path + ")"
+        '''
+        if '忘记上一条对话' == msg.strip():
+            if session['msg'][-1]["role"] != "assistant":
+                if session['msg'][-1]["role"] == "system":
+                    return "错误：没有可供清除的对话。"
+                else:
+                    return "您需要等待我回答完毕之后才能使用这个功能￣ω￣="
+            else:
+                del session['msg'][-2:len(session['msg'])]
+                return "唔~我已经忘记了与您的上一条对话啦o(´^｀)o"
         if msg.strip().startswith('切换人格'):
-            Characterlistener()
+            passing = False
+            gid = request.get_json().get('group_id')  # 群号
             uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
-            if ((str(uid) in (advanced_users or moderator_qq)) or (safe_mode == False)):  # 若用户在advanced_users组中或安全模式关
-                ques = msg.strip().replace('切换人格', '')     # 将msg（用户输入）中的"切换人格"删除
-                ques = ques.strip()       # 将msg中的空白删除
-                ques = ques.lower()     # 将msg中的字母全部转换为小写以供识别
+            print(request.get_json())
+            ques = msg.strip().replace('切换人格', '')     # 将msg（用户输入）中的"切换人格"删除
+            ques = ques.strip()       # 将msg中的空白删除
+            ques_l = ques.lower()     # 将msg中的字母全部转换为小写以供识别
+            if safe_mode:
+                keys = []
+                for x in range(0, len(safe_presets)):
+                    not_found = False
+                    try:
+                        keyi = next(k for k, v in data_presets_name.items() if v == safe_presets[x])
+                    except StopIteration:
+                        # 没有匹配的键，进行相应的处理
+                        not_found = True
+                    if not_found == False:
+                        keys.append(str(keyi))
+            if ((str(uid) in advanced_users) or (str(uid) in moderator_qq) or (safe_mode == 0) or (ques_l in safe_presets) or (ques_l in keys)):  # 若用户在advanced_users组中或安全模式关
                 matched = False
-                for i in range(0, len(character_description)-1):
-                    if ques == character_description[i].lower():
+                for i in range(0, len(data_presets_name)):
+                    if (ques_l == str(i) or ques_l == data_presets_name[i].lower() or ques_l == str(i) + "、" + data_presets_name[i].lower()) and ques_l != "":
                         session['msg'] = [
-                            {"role": "system", "content": config_data['chatgpt']['preset'+str(i)]}
+                            {"role": "system", "content": data_presets_r('presets\\', data_presets_name[i])}
                         ]
                         session['character'] = i
                         matched = True
-                        return '人格切换成功 当前人格：' + str(character_description[i])
-                    elif ques == "": # 当输入空消息时
-                        session['msg'] = [
-                            {"role": "system", "content": config_data['chatgpt']['preset0']}# 切换至默认人格
-                        ]
-                        session['character'] = 0
-                        matched = True
-                        return '人格切换成功 当前人格：' + str(character_description[0])
+                        if request.get_json().get('message_type') == 'group':
+                            if str(gid) in config_group_data().keys():
+                                if config_group_data()[str(gid)]["group_mode"] != 0:
+                                    update_config_group_json(str(gid), data_presets_name[i], config_group_data()[str(gid)]["group_mode"])
+                            else:
+                                update_config_group_json(str(gid), data_presets_name[i], 0)
+                        return '人格切换成功 当前人格：' + data_presets_name[i]
                         break
+                    elif ques_l == "": # 当输入空消息时
+                        if data_default_preset in data_presets:
+                            session['msg'] = [
+                                {"role": "system", "content": data_presets_r('presets\\', data_default_preset)} # 切换至默认人格
+                            ]
+                            session['character'] = -2
+                            matched = True
+                            if request.get_json().get('message_type') == 'group':
+                                if str(gid) in config_group_data().keys():
+                                    if config_group_data()[str(gid)]["group_mode"] != 0:
+                                        update_config_group_json(str(gid), data_default_preset, config_group_data()[str(gid)]["group_mode"])
+                                else:
+                                    update_config_group_json(str(gid), data_default_preset, 0)
+                            return '人格切换成功 当前人格：' + data_default_preset
+                            break
+                        else:
+                            session['msg'] = [
+                                {"role": "system", "content": ""} # 切换至ChatGPT人格
+                            ]
+                            session['character'] = -3
+                            matched = True
+                            if request.get_json().get('message_type') == 'group':
+                                if str(gid) in config_group_data().keys():
+                                    if config_group_data()[str(gid)]["group_mode"] != 0:
+                                        update_config_group_json(str(gid), "-3", config_group_data()[str(gid)]["group_mode"])
+                                else:
+                                    update_config_group_json(str(gid), "-3", 0)
+                            return '人格切换成功 当前人格：' + "ChatGPT"
+                            break
                 # 当用户输入与上述任何一种情况不匹配时
                 if matched == False:
                     session['msg'] = [
                         {"role": "system", "content": ques}
                     ]                                                                       # 直接将输入自定义人设写入session
                     session['character'] = -1
+                    if request.get_json().get('message_type') == 'group':
+                        if str(gid) in config_group_data().keys():
+                            if config_group_data()[str(gid)]["group_mode"] != 0:
+                                update_config_group_json(str(gid), "-1", config_group_data()[str(gid)]["group_mode"])
+                        else:
+                            update_config_group_json(str(gid), "-1", 0)
                     return '人格切换成功 当前人格：自定义'
             else:
-                return "错误：没有足够权限来执行此操作."
+                return "错误：您的用户组无法切换指定人格列表外的人格."
         if '当前人格' == msg.strip():
-            desc = character_description[session['character']]
+            if session['character'] == -3:
+                desc = "ChatGPT"
+            
+            elif session['character'] == -2:
+                desc = data_default_preset
+            
+            elif session['character'] == -1:
+                desc = "自定义人格"
+            else:
+                desc = data_presets_name[session['character']]
             return '当前人格：' + str(desc)
         if '查看群聊对话模式' == msg.strip():
             if request.get_json().get('message_type') == 'private':  # 如果是私聊信息
                 return '错误：此指令仅能在群聊内使用.'
             else:
                 gid = request.get_json().get('group_id')  # 群号
-                # 判断群号是否在general_enabled_group中
-                if (str(gid) in general_enabled_group):
-                    return '当前模式：群聊共享对话'
+                if str(gid) in config_group_data().keys():
+                    if config_group_data()[str(gid)]["group_mode"] == 0:
+                        return '当前模式：个人独立对话'
+                    elif config_group_data()[str(gid)]["group_mode"] == 1:
+                        return '当前模式：群聊共享对话'
+                    elif config_group_data()[str(gid)]["group_mode"] == 2:
+                        return '当前模式：群聊独立对话'
                 else:
-                    return '当前模式：个人独立对话'
+                    "错误：未记录该群聊对话模式"
         if '切换群聊对话模式' == msg.strip():
             if request.get_json().get('message_type') == 'private':  # 如果是私聊信息
                 return '错误：此指令仅能在群聊内使用.'
@@ -371,35 +729,135 @@ def chat(msg, sessionid):
                 # 检测用户是否为moderator
                 if (str(uid) in moderator_qq): # 若拥有权限
                     # 重置人格
-                    session['msg'] = [
-                        {"role": "system", "content": config_data['chatgpt']['preset']}
-                    ]
-                    session['character'] = 0
-                    # 判断群号是否在general_enabled_group中
-                    if (str(gid) not in general_enabled_group):
-                        general_enabled_group.append(str(gid))
-                        return '群聊对话模式切换成功，会话及人格已重置 \n当前模式：群聊共享对话'
+                    if data_default_preset in data_presets:
+                        # 清空对话内容并恢复预设人设
+                        session['msg'] = [
+                            {"role": "system", "content": data_presets_r('presets\\', data_default_preset)}
+                        ]
+                        session['character'] = -2
+                        if config_group_data()[str(gid)]["group_mode"] < 2:
+                            update_config_group_json(str(gid), "-2", config_group_data()[str(gid)]["group_mode"] + 1)
+                        else:
+                            update_config_group_json(str(gid), "-2", 0)
                     else:
-                        general_enabled_group.remove(str(gid))
+                        # 清空对话内容并恢复预设人设
+                        session['msg'] = [
+                            {"role": "system", "content": ""}
+                        ]
+                        session['character'] = -3
+                        if config_group_data()[str(gid)]["group_mode"] < 2:
+                            update_config_group_json(str(gid), "-3", config_group_data()[str(gid)]["group_mode"] + 1)
+                        else:
+                            update_config_group_json(str(gid), "-3", 0)
+                    if config_group_data()[str(gid)]["group_mode"] == 0:
                         return '群聊对话模式切换成功，会话及人格已重置 \n当前模式：个人独立对话'
+                    elif config_group_data()[str(gid)]["group_mode"] == 1:
+                        return '群聊对话模式切换成功，会话及人格已重置 \n当前模式：群聊共享对话'
+                    elif config_group_data()[str(gid)]["group_mode"] == 2:
+                        return '群聊对话模式切换成功，会话及人格已重置 \n当前模式：群聊独立对话'
                 else:
                     return "错误：没有足够权限来执行此操作."
+        if msg.strip().startswith('添加人格关系'):
+            if request.get_json().get('message_type') == 'private':  # 如果是私聊信息
+                return '错误：此指令仅能在群聊内使用.'
+            else:
+                gid = request.get_json().get('group_id')  # 群号
+                uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
+                # 检测用户是否为moderator
+                if (str(uid) in moderator_qq): # 若拥有权限
+                    ques = msg.strip().replace('添加人格关系', '')     # 将msg（用户输入）中的"添加人格关系"删除
+                    ques = ques.strip()       # 将msg中的空白删除
+                    # 清空对话内容并恢复预设人设
+                    qq, relation, additional = ques.split('-')
+                    update_config_group_relation_json(str(gid), str(qq), relation, additional)
+                    return '人格关系添加完成'
+                else:
+                    return "错误：没有足够权限来执行此操作."
+        if msg.strip().startswith('删除人格关系'):
+            if request.get_json().get('message_type') == 'private':  # 如果是私聊信息
+                return '错误：此指令仅能在群聊内使用.'
+            else:
+                gid = request.get_json().get('group_id')  # 群号
+                uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
+                # 检测用户是否为moderator
+                if (str(uid) in moderator_qq): # 若拥有权限
+                    ques = msg.strip().replace('删除人格关系', '')     # 将msg（用户输入）中的"切换人格"删除
+                    ques = ques.strip()       # 将msg中的空白删除
+                    
+                    # 打开JSON文件并读取数据
+                    with open("config_group_relation.json", "r", encoding='utf-8') as f:
+                        data = json.load(f)
+
+                    # 删除指定键
+                    if ques in config_group_relation_data()[str(gid)]:
+                        del data[str(gid)][ques]
+                    else:
+                        return '未找到该QQ'
+                    # 将更新后的数据写入JSON文件
+                    with open('config_group_relation.json', 'w', encoding='utf-8') as f:
+                        json.dump(data, f, ensure_ascii=False)
+                        
+                    return '人格关系删除完成'
+                else:
+                    return "错误：没有足够权限来执行此操作."
+        if '查看人格关系' == msg.strip():
+            if request.get_json().get('message_type') == 'private':  # 如果是私聊信息
+                return '错误：此指令仅能在群聊内使用.'
+            else:
+                gid = request.get_json().get('group_id')  # 群号
+                uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
+                if str(gid) in config_group_relation_data():
+                    # 遍历指定gid下的所有uid_data，并按照指定的格式打印它们
+                    uid_data = config_group_relation_data()[str(gid)]
+                    count = 1
+                    out = "当前人格关系：\n"
+                    for uuid, values in uid_data.items():
+                        relation = values['relation']
+                        additional = values['additional']
+                        out = out + str(uuid) + "-" + str(relation) + "-" + str(additional) + "\n"
+                        count += 1
+                    return out
+                else:
+                    return "错误：当前群组未建立关系."
         if '人格列表' == msg.strip():
-            Characterlistener()
-            out = "当前可切换人格：\n"
-            for i in range(0, len(character_description)-1):
-                out = out + str(character_description[i]) + "\n"
-                Characterlistener()
-            out = out + "(PS:使用'切换人格 人格预设'即可完成切换)"
-            return out
-        if msg.strip().startswith('自定义人格'):
             uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
-            if (str(uid) in (advanced_users or moderator_qq)) or (safe_mode == False):#若用户在advanced_users组中或安全模式关
+            if ((str(uid) in advanced_users) or (str(uid) in moderator_qq) or (safe_mode == 0)):
+                out = "当前可切换人格：\n"
+                for i in range(0, len(data_presets)):
+                    out = out + str(i) + '、' + data_presets_name[i] + "\n"
+                out = out + "(PS:使用'切换人格 人格排序号（或人格名）'即可完成切换)"
+                return out
+            else:
+                keys = []
+                for x in range(0, len(safe_presets)):
+                    not_found = False
+                    try:
+                        keyi = next(k for k, v in data_presets_name.items() if v == safe_presets[x])
+                    except StopIteration:
+                        # 没有匹配的键，进行相应的处理
+                        not_found = True
+                    if not_found == False:
+                        keys.append(keyi)
+                out = "当前可切换人格：\n"
+                for i in keys:
+                    out = out + str(i) + '、' + data_presets_name[i] + "\n"
+                out = out + "(PS:使用'切换人格 人格排序号（或人格名）'即可完成切换)"
+                return out
+        if msg.strip().startswith('自定义人格'):
+            gid = request.get_json().get('group_id')  # 群号
+            uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
+            if ((str(uid) in advanced_users) or (str(uid) in moderator_qq) or (safe_mode == 0)): # 若用户在advanced_users组中或安全模式关
                 # 清空对话并设置人设
                 session['msg'] = [
                     {"role": "system", "content": msg.strip().replace('自定义人格', '')}
                 ]
                 session['character'] = -1
+                if request.get_json().get('message_type') == 'group':
+                    if str(gid) in config_group_data().keys():
+                        if config_group_data()[str(gid)]["group_mode"] != 0:
+                            update_config_group_json(str(gid), "-1", config_group_data()[str(gid)]["group_mode"])
+                    else:
+                        update_config_group_json(str(gid), "-1", 0)
                 return '自定义人格设置成功\n（提示：下次切换或重置人格前都会保持此人设）'
             else:
                 return "错误：没有足够权限来执行此操作."
@@ -452,22 +910,85 @@ def chat(msg, sessionid):
             uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
             # 检测用户是否为moderator
             if (str(uid) in moderator_qq): # 若拥有权限
-                if safe_mode == False:
-                    safe_mode = True
-                    return '已开启人格切换限制（全局生效）'
+                if safe_mode == 0:
+                    safe_mode = 1
+                    return '已开启人格切换限制（全局生效，不会写入）'
                 else:
-                    safe_mode = False
+                    safe_mode = 0
                     return '已关闭人格限制（全局生效）'
             else:
                 return "错误：没有足够权限来执行此操作."
-        # 设置本次对话内容
-        session['msg'].append({"role": "user", "content": msg})
+        # 获取信息
+        gid = request.get_json().get('group_id')  # 群号
+        uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
+        nickname = request.get_json().get('sender').get('nickname')  # 发言者的昵称
+        card = request.get_json().get('sender').get('card')  # 发言者的群名片
+        if card != '':
+            uname = card
+        else:
+            uname = nickname
         # 设置时间
+        if len(session['msg']) < 2:
+            session['msg'].append(None)
+        session['msg'][1] = {"role": "system", "content": "current time is:" + get_bj_time()}
+        # 设置本次对话内容
+        if request.get_json().get('message_type') == 'group':
+            if config_group_data()[str(gid)]["group_mode"] == 1 or config_group_data()[str(gid)]["group_mode"] != 0: # 判断是否群聊
+                if session['character'] < 0 and config_group_data()[str(gid)]["presets"] in data_presets:
+                    session['msg'] = [
+                        {"role": "system", "content": data_presets_r('presets\\', config_group_data()[str(gid)]["presets"])}
+                    ]
+                    session['character'] = 0
+            if config_group_data()[str(gid)]["group_mode"] == 2: # 判断是否群聊独立
+                if session['character'] >= 0:
+                    if config_group_data()[str(gid)]["presets"] in data_presets1.keys():
+                        msg_prefix = data_presets_r('presets1\\', config_group_data()[str(gid)]["presets"])
+                    else:
+                        msg_prefix = ""
+                    if config_group_data()[str(gid)]["presets"] in data_presets2.keys():
+                        msg_suffix = data_presets_r('presets2\\', config_group_data()[str(gid)]["presets"])
+                    else:
+                        msg_suffix = ""
+                    msg_prefix = msg_prefix.replace('$user_qq$', str(uid))
+                    msg_prefix = msg_prefix.replace('$user_name$', str(uname))
+                elif session['character'] == -2:
+                    if data_default_preset in data_presets1.keys():
+                        msg_prefix = data_presets_r('presets1\\', data_default_preset)
+                    else:
+                        msg_prefix = ""
+                    if data_default_preset in data_presets2.keys():
+                        msg_suffix = data_presets_r('presets2\\', data_default_preset)
+                    else:
+                        msg_suffix = ""
+                    msg_prefix = msg_prefix.replace('$user_qq$', str(uid))
+                    msg_prefix = msg_prefix.replace('$user_name$', str(uname))
+                # 检查uid键是否存在于gid中
+                if str(gid) in config_group_relation_data() and str(uid) in config_group_relation_data()[str(gid)]:
+                    # 使用关系生成消息前缀
+                    msg_prefix = msg_prefix.replace('$user_rel$', config_group_relation_data()[str(gid)][str(uid)]["relation"])
+                    session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)][str(uid)]["additional"]})
+                
+                elif '默认' in config_group_relation_data().get(str(gid), {}):
+                    # 使用默认关系生成消息前缀
+                    msg_prefix = msg_prefix.replace('$user_rel$', config_group_relation_data()[str(gid)]['默认']["relation"])
+                    session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)]['默认']["additional"]})
+                else:
+                    # 没有找到关系信息，不使用关系生成消息前缀
+                    session['msg'].append({"role": "user", "content": msg})
+            else:
+                session['msg'].append({"role": "user", "content": msg})
+        else:
+            session['msg'].append({"role": "user", "content": msg})
+        # 更新时间
+        if len(session['msg']) < 2:
+            session['msg'].append(None)
         session['msg'][1] = {"role": "system", "content": "current time is:" + get_bj_time()}
         # 检查是否超过tokens限制
         while num_tokens_from_messages(session['msg']) > config_data['chatgpt']['max_tokens']:
             # 当超过记忆保存最大量时，清理一条
             del session['msg'][2:3]
+        print("上下文：")
+        print(session['msg'])
         # 与ChatGPT交互获得对话内容
         message = chat_with_gpt(session['msg'])
         # 记录上下文
@@ -500,7 +1021,6 @@ def get_chat_session(sessionid):
     if sessionid not in sessions:
         config = deepcopy(session_config)
         config['id'] = sessionid
-        config['msg'].append({"role": "system", "content": "current time is:" + get_bj_time()})
         sessions[sessionid] = config
     return sessions[sessionid]
 
@@ -519,7 +1039,11 @@ def chat_with_gpt(messages):
 
         resp = openai.ChatCompletion.create(
             model=config_data['chatgpt']['model'],
-            messages=messages
+            messages=messages,
+            temperature=config_data['chatgpt']['temperature'],
+            top_p=config_data['chatgpt']['top_p'],
+            presence_penalty=config_data['chatgpt']['presence_penalty'],
+            frequency_penalty=config_data['chatgpt']['frequency_penalty']
         )
         resp = resp['choices'][0]['message']['content']
     except openai.OpenAIError as e:
@@ -540,8 +1064,6 @@ def chat_with_gpt(messages):
         else:
             print('openai 接口报错: ' + str(e))
             resp = str(e)
-    if str(resp).__contains__("HTTP code 504 from API"):
-        resp = "(っ´ωc)　呜哇哇，Close AI 一点都不理我，我不知道说什么了啦 ｡ﾟ(ﾟ´ωﾟ)ﾟ｡ "
     return resp
 
 
@@ -598,30 +1120,44 @@ def send_private_message_image(uid, pic_path, msg):
 
 
 # 发送群消息方法
-def send_group_message(gid, message, uid, send_voice):
+def send_group_message(gid, message, uid, send_voice, message_id):
     try:
-        if send_voice:  # 如果开启了语音发送
-            voice_path = asyncio.run(
-                gen_speech(message, config_data['qq_bot']['voice'], config_data['qq_bot']['voice_path']))
-            message = "[CQ:record,file=file://" + voice_path + "]"
-        if len(message) >= config_data['qq_bot']['max_length'] and not send_voice:  # 如果消息长度超过限制，转成图片发送
+        if len(message) >= config_data['qq_bot']['max_length']:  # 如果消息长度超过限制，转成图片发送
             pic_path = genImg(message)
-            message = "[CQ:image,file=" + pic_path + "]"
-        if not send_voice:
-            message = str('[CQ:at,qq=%s]\n' % uid) + message  # @发言人
-        res = requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/send_group_msg",
-                            params={'group_id': int(gid), 'message': message}).json()
-        if res["status"] == "ok":
-            print("群消息发送成功")
+            pic_message = "[CQ:image,file=" + pic_path + "]"
+            res = requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/send_group_msg",
+                                params={'group_id': int(gid), 'message': pic_message}).json()
+            if res["status"] == "ok":
+                print("群图片发送成功")
+            else:
+                print("群图片发送失败，错误信息：" + str(res['wording']))
         else:
-            print("群消息发送失败，错误信息：" + str(res['wording']))
+            message_message = message
+            message_message = str('[CQ:at,qq=%s]\n' % uid) + message_message  # @发言人
+            res = requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/send_group_msg",
+                                params={'group_id': int(gid), 'message': message_message}).json()
+            if res["status"] == "ok":
+                print("群消息发送成功")
+            else:
+                print("群消息发送失败，错误信息：" + str(res['wording']))
+        if send_voice:  # 如果开启了语音发送
+            voice_message = message
+            voice_path = asyncio.run(
+                gen_speech(voice_message, config_data['qq_bot']['voice'], config_data['qq_bot']['voice_path']))
+            voice_message = "[CQ:record,file=file:///" + voice_path + "]"
+            res = requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/send_group_msg",
+                                params={'group_id': int(gid), 'message': voice_message}).json()
+            if res["status"] == "ok":
+                print("群语音发送成功")
+            else:
+                print("群语音发送失败，错误信息：" + str(res['wording']))
     except Exception as error:
         print("群消息发送失败")
         print(error)
 
 
 # 发送群消息图片方法
-def send_group_message_image(gid, pic_path, uid, msg):
+def send_group_message_image(gid, pic_path, uid, msg, message_id):
     try:
         message = "[CQ:image,file=" + pic_path + "]"
         if msg != "":
@@ -709,6 +1245,17 @@ def num_tokens_from_messages(messages, model="gpt-3.5-turbo"):
     else:
         raise NotImplementedError(f"""当前模型不支持tokens计算: {model}.""")
 
+# 判断关键字数组是否存在字符串中
+def check_strings_exist(str_list, target_str):
+    for s in str_list:
+        if s.lower() in target_str.lower():
+            return True
+    return False
+
+
+
+
 
 if __name__ == '__main__':
-    server.run(port=5555, host='0.0.0.0', use_reloader=False)
+    config_port = config_data["qq_bot"]["cqhttp_post_port"]
+    server.run(port=config_port, host='0.0.0.0', use_reloader=False)

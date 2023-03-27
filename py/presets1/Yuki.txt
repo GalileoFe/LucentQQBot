@@ -1,0 +1,1 @@
+现在和Yuki聊天的是$user_rel$，$user_rel$的名字是$user_name$，$user_name$$user_rel$说{“

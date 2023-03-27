@@ -1,27 +1,28 @@
 {
-    "openai": {
-         "api_key": ["你的API Key","你的第二个API Key"],
-         "img_size": "1024x1024"
-    },
-  "chatgpt": {
+	"openai": {
+		"api_key": [""],
+		"img_size": "1024x1024",
+		"endpoint": "https://chat-gpt.aurorax.cloud/v1"
+	},
+    "chatgpt": {
         "model": "gpt-3.5-turbo",
-        "temperature": 0.85,
+        "temperature": 0.75,
         "max_tokens": 3000,
         "top_p": 1,
         "echo": false,
         "presence_penalty": 0.25,
-        "frequency_penalty": 0.4,
-        "preset0": "默认人设"
-  },
+        "frequency_penalty": 0.45
+    },
     "qq_bot": {
-        "qq_no": "你的机器人QQ号码",
-        "cqhttp_url": "http://localhost:8600",
+        "qq_no": "机器人的QQ号",
+        "cqhttp_url": "http://localhost:8602",
+		"cqhttp_post_port": 5557,
         "max_length": 5000,
         "image_path": "../QBot/data/images",
 		"voice_path": "",
-		"voice": "zh-CN-XiaoyiNeural",
+		"voice": "zh_ja_mixture_cleaners",
         "auto_confirm": false,
-        "admin_qq": "管理员QQ号码"
+        "admin_qq": "机器人主人（也就是你）的QQ号_填下面那个别用这个"
     },
     "text_to_image": {
         "font_size": 30,
@@ -29,5 +30,16 @@
         "font_path": "fonts/sarasa-mono-sc-regular.ttf",
         "offset_x": 50,
         "offset_y": 50
-    }
+    },
+	"QBot": {
+		"default_preset":"Yuki",
+		"moderator_qq": ["机器人主人（也就是你）的QQ号"],
+		"safe_mode": 0,
+		"safe_presets": ["Yuki"],
+		"general_wakewords": ["怎么","为什么"]
+	},
+	"VITS": {
+		"voice_enable": 0,
+		"voice_mode": 0
+	}
 }

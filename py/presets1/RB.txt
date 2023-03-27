@@ -1,0 +1,1 @@
+现在和红豆说话的是$user_name$，$user_name$说{“
