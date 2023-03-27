@@ -42,7 +42,7 @@ Download [Model](https://sjtueducn-my.sharepoint.com/:u:/g/personal/cjang_cjengh
 比如"voice","voice_path"。
 
 # 问题和反馈 🤔
-一些内容在 **[部分说明]**(xxx)里有涵盖, 可以先浅看一下.
+一些内容在 **[部分说明](https://github.com/BlackPinkiller/LucentQQBot/blob/main/%E9%83%A8%E5%88%86%E8%AF%B4%E6%98%8E(%E7%9C%8B%E8%BF%99%E4%B8%AA).pdf)** 里有涵盖, 可以先浅看一下.
 如果您在使用机器人时遇到任何问题，请随时提交 Issue 或向我们发送反馈。我们会尽快回复并尽力解决您的问题。
 
 谢谢您的使用！ 😊
