@@ -363,9 +363,10 @@ def get_message():
             # 将消息转发给ChatGPT处理
             msg_text = chat(message, 'P' + str(uid), 0, uid)
             send_private_message(uid, msg_text, config_data_send_voice)  # 将消息返回的内容发送给用户
-            for msgID in msgIDlist:
-                recall_message(msgID)
-            msgIDlist.clear()
+            if msgIDlist.get('P' + str(uid)):
+                for msgID in msgIDlist.get('P' + str(uid)):
+                    recall_message(msgID)
+                msgIDlist.get('P' + str(uid)).clear()
 
     if request.get_json().get('message_type') == 'group':  # 如果是群消息
         gid = request.get_json().get('group_id')  # 群号
@@ -465,12 +466,15 @@ def get_message():
 
                         if config_group_data()[str(gid)]["group_mode"] != 0:
                             msg_text = chat(message, 'G' + str(gid), gid, uid)  # 将消息转发给ChatGPT处理（群聊共享对话）
+                            sessionid = 'G' + str(gid)
                         else:
                             msg_text = chat(message, 'G' + str(uid), gid, uid)  # 将消息转发给ChatGPT处理（个人独立对话）
+                            sessionid = 'G' + str(uid)
                     send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群里
-                    for msgID in msgIDlist:
-                        recall_message(msgID)
-                    msgIDlist.clear()
+                    if msgIDlist.get(sessionid):
+                        for msgID in msgIDlist.get(sessionid):
+                            recall_message(msgID)
+                        msgIDlist.get(sessionid).clear()
 
     if request.get_json().get('post_type') == 'request':  # 收到请求消息
         print("收到请求消息")
@@ -1027,9 +1031,9 @@ def chat(msg, sessionid, *args):
         print("上下文：")
         print(session['msg'])
         # 与ChatGPT交互获得对话内容
-        message = chat_with_gpt(session['msg'], *args)
+        message = chat_with_gpt(session['msg'], *args, sessionid)
         # 记录上下文
-        session['msg'].append({"role": "assistant", "content": message})
+        session['msg'].append({"role": "assistant", "content": message if message[-1]!= '页' else message[:-5]})
         print("会话ID: " + str(sessionid))
         print("ChatGPT返回内容: ")
         print(message)
@@ -1080,36 +1084,51 @@ def chat_with_gpt(messages, *args):
             # create variables to collect the stream of chunks
             full_reply_content = ""
             text_block = ""
+            chunk_collection = []
+            if not msgIDlist.get(args[2]):
+                msgIDlist[args[2]] = {}
+            code_pattern = "```"
+            codemode = False
+            formmode = False
+            code_count = 15
             # start stream...
             for chunk in stream_resp:
-                text_block += ''.join(chunk['choices'][0]['delta'].get('content', ''))
-                full_reply_content += ''.join(chunk['choices'][0]['delta'].get('content', ''))
-                if len(text_block) >= 75 and text_block[-1] in ['\n\n', '\n', '.', '。']:
-                    print('第 ' + str(len(msgIDlist) + 1) + ' 页\n' + text_block)
+                chunk_content = chunk['choices'][0]['delta'].get('content', '')
+                if '```' in chunk_content or (len(chunk_collection) > 0 and '```' in chunk_collection[-1]['choices'][0]['delta'].get('content', '') + chunk_content) and code_count > 7:
+                    codemode = not codemode
+                    code_count = 0
+                if '|' in chunk_content and not formmode:
+                    formmode = True
+                if '|\n\n' in chunk_content or (len(chunk_collection) > 0 and '|\n\n' in chunk_collection[-1]['choices'][0]['delta'].get('content', '') + chunk_content) and formmode:
+                    formmode = False
+                if codemode:
+                    code_count += 1
+                # update value
+                chunk_collection.append(chunk)
+                text_block += ''.join(chunk_content)
+                full_reply_content += ''.join(chunk_content)
+                # split the response into smaller chunks by "qq_bot" -> "chunk_chars" section of the config file.
+                # This parameter specifies the characters that will be used to split the response into chunks.
+                if len(text_block) >= (config_data['qq_bot'].get('chunk_chars') if config_data['qq_bot'].get('chunk_chars') else 75) and text_block[-1] in ['\n\n', '\n', '.', '。'] and not codemode and not formmode:
+                    print('第 ' + str(len(msgIDlist.get(args[2])) + 1) + ' 页')
                     text_block = text_block[:-2] + text_block[-2:].replace('\n', '') + '\n\n' + \
-                                 str(len(msgIDlist) + 1) + "/...👇"
+                                 str(len(msgIDlist.get(args[2])) + 1) + "/...👇"
                     if args[0] != 0:
                         qq_response = send_group_message(args[0], text_block, args[1] if len(msgIDlist) == 0 else 0,
                                                      config_data_send_voice, 0)
                     else:
                         qq_response = send_private_message(args[1], text_block, config_data_send_voice)
                     if qq_response and qq_response.get('data').get('message_id'):
-                        msgIDlist[qq_response.get('data').get('message_id')] = time.time()
+                        msgIDlist[args[2]].update({qq_response.get('data').get('message_id'): time.time()})
                     text_block = ""
-                msg_to_pop = []
-                for msgID, time_stamp in msgIDlist.items():
-                    if time.time() - time_stamp > 90:
-                        recall_message(msgID)
-                        msg_to_pop.append(msgID)
-                for popID in msg_to_pop:
-                    msgIDlist.pop(popID)
+                if msgIDlist.get(args[2]):
+                    for msgID, time_stamp in msgIDlist.get(args[2]).items():
+                        if time.time() - time_stamp > 90:
+                            recall_message(msgID)
             # end stream...
-            print(f"Full conversation received: {full_reply_content}")
-            if msgIDlist:
-                full_reply_content += "\n\n" + str(len(msgIDlist)) + "/" + str(len(msgIDlist)) + " 页"
+            if msgIDlist.get(args[2]) and len(msgIDlist.get(args[2])) > 1:
+                full_reply_content += "\n\n" + str(len(msgIDlist.get(args[2]))) + "/" + str(len(msgIDlist.get(args[2]))) + " 页"
             resp = full_reply_content
-
-
         else:
             resp = chat_completion(stream=False, messages=messages)
             resp = resp['choices'][0]['message']['content']
