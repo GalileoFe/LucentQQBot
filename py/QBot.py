@@ -31,9 +31,13 @@ if config_data["VITS"]["voice_enable"] == 1:
     from txtReader import read_txt_files
     import asyncio
 
+# 如果stream值不存在则赋值为False
 if not config_data['qq_bot'].get('stream'):
     config_data['qq_bot']['stream'] = False
 stream_enable = config_data['qq_bot']['stream']
+# 全局变量, 在使用流式传输发送分段文本后添加进去的值
+# 值为[sessionid][消息id].value = 发送时间戳
+# 时间在默认超时90秒或在接受并发送整条gpt回复后遍历撤回
 msgIDlist = {}
 
 def config_wakewords_reload():
@@ -363,6 +367,8 @@ def get_message():
             # 将消息转发给ChatGPT处理
             msg_text = chat(message, 'P' + str(uid), 0, uid)
             send_private_message(uid, msg_text, config_data_send_voice)  # 将消息返回的内容发送给用户
+            # 如果有需要撤回的历史消息, 则遍历历史消息字典, 并以key值(消息ID)撤回, value为时间戳
+            # 如果需要key和value则需要加上.items(), 不加默认只返回key值
             if msgIDlist.get('P' + str(uid)):
                 for msgID in msgIDlist.get('P' + str(uid)):
                     recall_message(msgID)
@@ -463,7 +469,6 @@ def get_message():
                         # 判断对话模式
                         if not str(gid) in config_group_data():
                             update_config_group_json(str(gid), "", 0)
-
                         if config_group_data()[str(gid)]["group_mode"] != 0:
                             msg_text = chat(message, 'G' + str(gid), gid, uid)  # 将消息转发给ChatGPT处理（群聊共享对话）
                             sessionid = 'G' + str(gid)
@@ -471,6 +476,8 @@ def get_message():
                             msg_text = chat(message, 'G' + str(uid), gid, uid)  # 将消息转发给ChatGPT处理（个人独立对话）
                             sessionid = 'G' + str(uid)
                     send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群里
+                    # 如果有需要撤回的历史消息, 则遍历历史消息字典, 并以key值(消息ID)撤回, value为时间戳
+                    # 如果需要key和value则需要加上.items(), 不加默认只返回key值
                     if msgIDlist.get(sessionid):
                         for msgID in msgIDlist.get(sessionid):
                             recall_message(msgID)
@@ -1067,6 +1074,15 @@ def get_chat_session(sessionid):
 
 
 def chat_with_gpt(messages, *args):
+    """
+
+    Args:
+        messages: 要发送给gpt的文本, 为用户输入
+        *args: 0,1,2 分别是 gid, uid, sessionid, 这也是不改动源代码我想到比较好的方法
+
+    Returns:
+        返回完整的gpt回复, str方式
+    """
     global current_key_index
     max_length = len(config_data['openai']['api_key']) - 1
     try:
@@ -1077,57 +1093,76 @@ def chat_with_gpt(messages, *args):
                 current_key_index = 0
                 return "全部Key均已达到速率限制,请等待一分钟后再尝试"
             openai.api_key = config_data['openai']['api_key'][current_key_index]
+        # 如果stream开启则开始使用stream方法
         if config_data['qq_bot'].get('stream') if config_data['qq_bot'].get('stream') else stream_enable:
             print("start stream")
             import time
             stream_resp = chat_completion(stream=True, messages=messages)
-            # create variables to collect the stream of chunks
+            # 定义收集chunk的变量
+            # full_reply_content 用于返回全部文本
+            # text_chunk 把回复分块后的chunk, 默认为->超过75字符后遇到 \n 换行符号或句号
+            # chunk_collection 用于比对数据, 捕捉代码块
             full_reply_content = ""
-            text_block = ""
+            text_chunk = ""
             chunk_collection = []
+            # 提前判断本session发送的需要撤回的text_chunk列表是否存在
+            # 不赋值的话会报错, >>已经再下方使用 if 避免了报错, 但是需要赋空值才能放入数据
             if not msgIDlist.get(args[2]):
                 msgIDlist[args[2]] = {}
-            code_pattern = "```"
-            codemode = False
-            formmode = False
+            qq_response = None
+            # 不太好看的代码, 用于判断 代码块模式, 列表模式, code_count避免在刚判断为code_mode后重复赋值
+            code_mode = False
             code_count = 15
-            # start stream...
+            form_mode = False
+            # 开始流式传输...
+            # chunk为每次gpt返回的一个单个类似token的东西
+            # chunk不一定为1个字符
+            # 同样的结构chunk每次不一定一样, 所以才需要判断一个chunk范围来确定是否是代码块
             for chunk in stream_resp:
+                # 复用当前chunk数据, 所有提前赋一下值让代码好读
                 chunk_content = chunk['choices'][0]['delta'].get('content', '')
                 if '```' in chunk_content or (len(chunk_collection) > 0 and '```' in chunk_collection[-1]['choices'][0]['delta'].get('content', '') + chunk_content) and code_count > 7:
-                    codemode = not codemode
+                    code_mode = not code_mode
                     code_count = 0
-                if '|' in chunk_content and not formmode:
-                    formmode = True
-                if '|\n\n' in chunk_content or (len(chunk_collection) > 0 and '|\n\n' in chunk_collection[-1]['choices'][0]['delta'].get('content', '') + chunk_content) and formmode:
-                    formmode = False
-                if codemode:
+                if '|' in chunk_content and not form_mode:
+                    form_mode = True
+                if '|\n\n' in chunk_content or (len(chunk_collection) > 0 and '|\n\n' in chunk_collection[-1]['choices'][0]['delta'].get('content', '') + chunk_content) and form_mode:
+                    form_mode = False
+                if code_mode:
                     code_count += 1
-                # update value
+                # 使用本次chunk更新收集chunk的变量
                 chunk_collection.append(chunk)
-                text_block += ''.join(chunk_content)
+                text_chunk += ''.join(chunk_content)
                 full_reply_content += ''.join(chunk_content)
-                # split the response into smaller chunks by "qq_bot" -> "chunk_chars" section of the config file.
-                # This parameter specifies the characters that will be used to split the response into chunks.
-                if len(text_block) >= (config_data['qq_bot'].get('chunk_chars') if config_data['qq_bot'].get('chunk_chars') else 75) and text_block[-1] in ['\n\n', '\n', '.', '。'] and not codemode and not formmode:
-                    print('第 ' + str(len(msgIDlist.get(args[2])) + 1) + ' 页')
-                    text_block = text_block[:-2] + text_block[-2:].replace('\n', '') + '\n\n' + \
-                                 str(len(msgIDlist.get(args[2])) + 1) + "/...👇"
-                    if args[0] != 0:
-                        qq_response = send_group_message(args[0], text_block, args[1] if len(msgIDlist) == 0 else 0,
-                                                     config_data_send_voice, 0)
-                    else:
-                        qq_response = send_private_message(args[1], text_block, config_data_send_voice)
+                # 根据配置文件中的 "qq_bot" -> "chunk_chars" 参数，
+                # 将响应分成较小的块。这个参数指定用于将响应拆分成块的字符。
+                # 默认为75, 可更改.
+                if len(text_chunk) >= (config_data['qq_bot'].get('chunk_chars') if config_data['qq_bot'].get('chunk_chars') else 75) and text_chunk[-1] in ['\n\n', '\n', '.', '。'] and not code_mode and not form_mode:
+                    text_chunk = text_chunk[:-2] + text_chunk[-2:].replace('\n', '') + '\n\n' + \
+                                 str(len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {}) + 1) + "/...👇"
+                    if args[0] != 0 and config_group_data()[str(args[0])]["group_mode"] == 1:
+                        # 首先判断是否为群聊模式, 在套娃式调用到本方法的时候, 会传递uid和gid, 私聊模式传递的gid为0
+                        # 如果有群id并且群id所在模式为群聊共享模式, 则执行, 否则不发送消息
+                        # args[0],[1],[2], 分别是 gid, uid, sessionid, 这也是不改动源代码我想到比较好的方法
+                        qq_response = send_group_message(args[0], text_chunk, args[1] if len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {}) == 0 else 0,
+                                                         config_data_send_voice, 0)
+                    elif args[0] == 0:
+                        qq_response = send_private_message(args[1], text_chunk, config_data_send_voice)
+                    # 如果有消息发送并且成功了, 将消息的id, 发送时间填入msgIDlist中对应的sessionid的字典中
                     if qq_response and qq_response.get('data').get('message_id'):
                         msgIDlist[args[2]].update({qq_response.get('data').get('message_id'): time.time()})
-                    text_block = ""
+                    text_chunk = ""
+                    # 结束分块判断...
+                # 如果本session中有历史发送的消息, 则循环查看他们是否超过90秒, 超出则撤回
+                # 不使用get语句的话会报错, 先判断再执行
                 if msgIDlist.get(args[2]):
                     for msgID, time_stamp in msgIDlist.get(args[2]).items():
                         if time.time() - time_stamp > 90:
                             recall_message(msgID)
-            # end stream...
-            if msgIDlist.get(args[2]) and len(msgIDlist.get(args[2])) > 1:
-                full_reply_content += "\n\n" + str(len(msgIDlist.get(args[2]))) + "/" + str(len(msgIDlist.get(args[2]))) + " 页"
+            # 结束流式传输
+            # 如果流式传输中发送的历史消息不为空以及大于 1, 则在消息底部添加页码
+            if msgIDlist.get(args[2]) and len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {}) > 1:
+                full_reply_content += "\n\n" + str(len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {})) + "/" + str(len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {})) + " 页"
             resp = full_reply_content
         else:
             resp = chat_completion(stream=False, messages=messages)
@@ -1154,6 +1189,15 @@ def chat_with_gpt(messages, *args):
 
 
 def chat_completion(stream: False, messages: ""):
+    """
+    为代码复用性而单独写的一个函数
+    Args:
+        stream:bool: 是否为流式传输
+        messages:str: 用户输入文本
+
+    Returns:
+        resp:流式传输的openai Generator对象
+    """
     resp = openai.ChatCompletion.create(
         model=config_data['chatgpt']['model'],
         messages=messages,
@@ -1164,6 +1208,7 @@ def chat_completion(stream: False, messages: ""):
         stream=stream
     )
     return resp
+
 
 # 生成图片
 def genImg(message):
@@ -1199,7 +1244,12 @@ def send_private_message(uid, message, send_voice):
         print(error)
 
 
-def recall_message(message_id):
+def recall_message(message_id) -> None:
+    """
+    撤回函数, 会在控制台打印出状态
+    Args:
+        message_id: 要撤回的消息id
+    """
     print("recall message. id: {} status:{}".format(message_id, requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/delete_msg",
                                                                              params={'message_id': message_id})))
 
