@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import traceback
 import uuid
 from copy import deepcopy
@@ -14,8 +15,8 @@ import re
 import threading
 import importlib
 import tiktoken
-import adv  # 导入adv.py
-import banlist  # 导入banlist.py
+import adv # 导入adv.py
+import banlist # 导入banlist.py
 
 with open("config.json", "r", encoding='utf-8') as jsonfile:
     config_data = json.load(jsonfile)
@@ -30,10 +31,20 @@ if config_data["VITS"]["voice_enable"] == 1:
     from txtReader import read_txt_files
     import asyncio
 
+if not config_data['qq_bot'].get('stream'):
+    config_data['qq_bot']['stream'] = False
+stream_enable = config_data['qq_bot']['stream']
+msgIDlist = {}
+
 def config_wakewords_reload():
     with open("config_individual_wakewords.json", "r", encoding='utf-8') as jsonfile:
         data = json.load(jsonfile)
     return data
+
+def config_reload():
+    with open("config.json", "r", encoding='utf-8') as jsonfile:
+        config_data = json.load(jsonfile)
+        qq_no = config_data['qq_bot']['qq_no']
 
 def banlist_reload():
     importlib.reload(banlist)
@@ -251,7 +262,7 @@ if safe_mode == 1: # 若安全模式
     else:
         session_config = {
             'msg': [
-                {"role": "system", "content": ""} # 对话初始人格为GPT默认
+                {"role": "system", "content": "You are a helpful assistant."} # 对话初始人格为GPT默认
             ],
             "character": -3
         }
@@ -333,11 +344,12 @@ def get_message():
             send_private_message_image(uid, pic_path, '')
         elif message == "重新加载配置文件":
             if (str(uid) in moderator_qq): # 若拥有权限
-                # 重新加载config.json、config_individual_wakewords.json和banlist.py
+                # 重新加载config.json、config_individual_wakewords.json、banlist.py和config.json
                 with open("config.json", "r", encoding='utf-8') as jsonfile:
                     config_data = json.load(jsonfile)
                 awaken = config_wakewords_reload()
                 banlist_reload()
+                config_reload()
                 # 重新加载预设文本
                 data_presets_name = data_presets_name_fc()
                 data_presets = data_presets_fc()
@@ -348,8 +360,12 @@ def get_message():
             else:
                 return "错误：没有足够权限来执行此操作."
         else:
-            msg_text = chat(message, 'P' + str(uid))  # 将消息转发给ChatGPT处理
+            # 将消息转发给ChatGPT处理
+            msg_text = chat(message, 'P' + str(uid), 0, uid)
             send_private_message(uid, msg_text, config_data_send_voice)  # 将消息返回的内容发送给用户
+            for msgID in msgIDlist:
+                recall_message(msgID)
+            msgIDlist.clear()
 
     if request.get_json().get('message_type') == 'group':  # 如果是群消息
         gid = request.get_json().get('group_id')  # 群号
@@ -371,14 +387,29 @@ def get_message():
             session = get_chat_session(m_gid) # 获得对话session
         else:
             session = get_chat_session(m_uid) # 获得对话session
-        data_presets_name_temp = data_presets_name
+        data_presets_name_temp = data_presets_name  # 创建一个临时对话
         data_presets_name_temp[-1]= '自定义'
-        data_presets_name_temp[-2]= data_default_preset
+        if data_default_preset in data_presets:
+            data_presets_name_temp[-2]= data_default_preset
+        else:
+            data_presets_name_temp[-2]= ''
         data_presets_name_temp[-3]= ''
         
 
+        global do_awake
         # 判断当被@或触发关键词时才回答
-        if (str("[CQ:at,qq=%s]" % qq_no) in message) or check_strings_exist(config_data['QBot']['general_wakewords'], message) or check_strings_exist(awaken[data_presets_name_temp[int(session['character'])]], message):
+        if data_presets_name[session['character']] in awaken.keys():  # 若当前人格有独立唤醒词
+            if (str("[CQ:at,qq=%s]" % qq_no) in message) or check_strings_exist(config_data['QBot']['general_wakewords'], message) or check_strings_exist(awaken[data_presets_name_temp[int(session['character'])]], message):
+                do_awake = True # 若触发，执行唤醒
+            else:
+                do_awake = False # 不执行唤醒
+        else:  # 若当前人格没有独立唤醒词
+            # 不判断是否触发独立唤醒词
+            if (str("[CQ:at,qq=%s]" % qq_no) in message) or check_strings_exist(config_data['QBot']['general_wakewords'], message):
+                do_awake = True # 若触发，执行唤醒
+            else:
+                do_awake = False # 不执行唤醒
+        if do_awake == True:
             if (str(uid) in ban_person) or (str(gid) in ban_group):  # 若发言者qq号在ban_person中或群号在ban_group中
                 pass  # 不处理该消息
             else:
@@ -404,21 +435,23 @@ def get_message():
                     send_group_message_image(gid, pic_path, uid, '', message_id)
                 elif message == "重新加载配置文件":
                     if (str(uid) in moderator_qq): # 若拥有权限
-                        # 重新加载config.json、config_individual_wakewords.json和banlist.py
+                        # 重新加载config.json、config_individual_wakewords.json、banlist.py和config.json
                         with open("config.json", "r", encoding='utf-8') as jsonfile:
                             config_data = json.load(jsonfile)
                         awaken = config_wakewords_reload()
                         banlist_reload()
+                        config_reload()
                         # 重新加载预设文本
                         data_presets_name = data_presets_name_fc()
                         data_presets = data_presets_fc()
                         data_presets1 = data_presets_fc1()
                         data_presets2 = data_presets_fc2()
                         print("配置文件已重新加载")
-                        send_private_message(uid, "配置文件已重新加载", config_data_send_voice)  # 将重载完成发送给用户
+                        send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群用户
                     else:
                         return "错误：没有足够权限来执行此操作."
                 else:
+
                     # 戳一戳
                     if poke_request:
                          message = re.sub(r"(.*)\[CQ:at,qq=(\d+)\]", '', message)
@@ -429,11 +462,15 @@ def get_message():
                         # 判断对话模式
                         if not str(gid) in config_group_data():
                             update_config_group_json(str(gid), "", 0)
+
                         if config_group_data()[str(gid)]["group_mode"] != 0:
-                            msg_text = chat(message, 'G' + str(gid))  # 将消息转发给ChatGPT处理（群聊共享对话）
+                            msg_text = chat(message, 'G' + str(gid), gid, uid)  # 将消息转发给ChatGPT处理（群聊共享对话）
                         else:
-                            msg_text = chat(message, 'G' + str(uid))  # 将消息转发给ChatGPT处理（个人独立对话）
-                    send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群里 
+                            msg_text = chat(message, 'G' + str(uid), gid, uid)  # 将消息转发给ChatGPT处理（个人独立对话）
+                    send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群里
+                    for msgID in msgIDlist:
+                        recall_message(msgID)
+                    msgIDlist.clear()
 
     if request.get_json().get('post_type') == 'request':  # 收到请求消息
         print("收到请求消息")
@@ -517,7 +554,7 @@ def reset_chat():
 
 
 # 与ChatGPT交互的方法
-def chat(msg, sessionid):
+def chat(msg, sessionid, *args):
     global config_data
     global config_data_presets
     global config_data_send_voice
@@ -635,7 +672,7 @@ def chat(msg, sessionid):
                         keys.append(str(keyi))
             if ((str(uid) in advanced_users) or (str(uid) in moderator_qq) or (safe_mode == 0) or (ques_l in safe_presets) or (ques_l in keys)):  # 若用户在advanced_users组中或安全模式关
                 matched = False
-                for i in range(0, len(data_presets_name)):
+                for i in range(0, len(data_presets_name)-3):
                     if (ques_l == str(i) or ques_l == data_presets_name[i].lower() or ques_l == str(i) + "、" + data_presets_name[i].lower()) and ques_l != "":
                         session['msg'] = [
                             {"role": "system", "content": data_presets_r('presets\\', data_presets_name[i])}
@@ -990,7 +1027,7 @@ def chat(msg, sessionid):
         print("上下文：")
         print(session['msg'])
         # 与ChatGPT交互获得对话内容
-        message = chat_with_gpt(session['msg'])
+        message = chat_with_gpt(session['msg'], *args)
         # 记录上下文
         session['msg'].append({"role": "assistant", "content": message})
         print("会话ID: " + str(sessionid))
@@ -1025,7 +1062,7 @@ def get_chat_session(sessionid):
     return sessions[sessionid]
 
 
-def chat_with_gpt(messages):
+def chat_with_gpt(messages, *args):
     global current_key_index
     max_length = len(config_data['openai']['api_key']) - 1
     try:
@@ -1036,16 +1073,46 @@ def chat_with_gpt(messages):
                 current_key_index = 0
                 return "全部Key均已达到速率限制,请等待一分钟后再尝试"
             openai.api_key = config_data['openai']['api_key'][current_key_index]
+        if config_data['qq_bot'].get('stream') if config_data['qq_bot'].get('stream') else stream_enable:
+            print("start stream")
+            import time
+            stream_resp = chat_completion(stream=True, messages=messages)
+            # create variables to collect the stream of chunks
+            full_reply_content = ""
+            text_block = ""
+            # start stream...
+            for chunk in stream_resp:
+                text_block += ''.join(chunk['choices'][0]['delta'].get('content', ''))
+                full_reply_content += ''.join(chunk['choices'][0]['delta'].get('content', ''))
+                if len(text_block) >= 75 and text_block[-1] in ['\n\n', '\n', '.', '。']:
+                    print('第 ' + str(len(msgIDlist) + 1) + ' 页\n' + text_block)
+                    text_block = text_block[:-2] + text_block[-2:].replace('\n', '') + '\n\n' + \
+                                 str(len(msgIDlist) + 1) + "/...👇"
+                    if args[0] != 0:
+                        qq_response = send_group_message(args[0], text_block, args[1] if len(msgIDlist) == 0 else 0,
+                                                     config_data_send_voice, 0)
+                    else:
+                        qq_response = send_private_message(args[1], text_block, config_data_send_voice)
+                    if qq_response and qq_response.get('data').get('message_id'):
+                        msgIDlist[qq_response.get('data').get('message_id')] = time.time()
+                    text_block = ""
+                msg_to_pop = []
+                for msgID, time_stamp in msgIDlist.items():
+                    if time.time() - time_stamp > 90:
+                        recall_message(msgID)
+                        msg_to_pop.append(msgID)
+                for popID in msg_to_pop:
+                    msgIDlist.pop(popID)
+            # end stream...
+            print(f"Full conversation received: {full_reply_content}")
+            if msgIDlist:
+                full_reply_content += "\n\n" + str(len(msgIDlist)) + "/" + str(len(msgIDlist)) + " 页"
+            resp = full_reply_content
 
-        resp = openai.ChatCompletion.create(
-            model=config_data['chatgpt']['model'],
-            messages=messages,
-            temperature=config_data['chatgpt']['temperature'],
-            top_p=config_data['chatgpt']['top_p'],
-            presence_penalty=config_data['chatgpt']['presence_penalty'],
-            frequency_penalty=config_data['chatgpt']['frequency_penalty']
-        )
-        resp = resp['choices'][0]['message']['content']
+
+        else:
+            resp = chat_completion(stream=False, messages=messages)
+            resp = resp['choices'][0]['message']['content']
     except openai.OpenAIError as e:
         if str(e).__contains__("Rate limit reached for default-gpt-3.5-turbo") and current_key_index <= max_length:
             # 切换key
@@ -1066,6 +1133,18 @@ def chat_with_gpt(messages):
             resp = str(e)
     return resp
 
+
+def chat_completion(stream: False, messages: ""):
+    resp = openai.ChatCompletion.create(
+        model=config_data['chatgpt']['model'],
+        messages=messages,
+        temperature=config_data['chatgpt']['temperature'],
+        top_p=config_data['chatgpt']['top_p'],
+        presence_penalty=config_data['chatgpt']['presence_penalty'],
+        frequency_penalty=config_data['chatgpt']['frequency_penalty'],
+        stream=stream
+    )
+    return resp
 
 # 生成图片
 def genImg(message):
@@ -1091,6 +1170,7 @@ def send_private_message(uid, message, send_voice):
                             params={'user_id': int(uid), 'message': message}).json()
         if res["status"] == "ok":
             print("私聊消息发送成功")
+            return res
         else:
             print(res)
             print("私聊消息发送失败，错误信息：" + str(res['wording']))
@@ -1099,6 +1179,10 @@ def send_private_message(uid, message, send_voice):
         print("私聊消息发送失败")
         print(error)
 
+
+def recall_message(message_id):
+    print("recall message. id: {} status:{}".format(message_id, requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/delete_msg",
+                                                                             params={'message_id': message_id})))
 
 # 发送私聊消息方法 uid为qq号，pic_path为图片地址
 def send_private_message_image(uid, pic_path, msg):
@@ -1129,15 +1213,17 @@ def send_group_message(gid, message, uid, send_voice, message_id):
                                 params={'group_id': int(gid), 'message': pic_message}).json()
             if res["status"] == "ok":
                 print("群图片发送成功")
+                return res
             else:
                 print("群图片发送失败，错误信息：" + str(res['wording']))
         else:
             message_message = message
-            message_message = str('[CQ:at,qq=%s]\n' % uid) + message_message  # @发言人
+            message_message = (str('[CQ:at,qq=%s]\n' % uid) + message_message) if uid != 0 else message  # @发言人
             res = requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/send_group_msg",
                                 params={'group_id': int(gid), 'message': message_message}).json()
             if res["status"] == "ok":
                 print("群消息发送成功")
+                return res
             else:
                 print("群消息发送失败，错误信息：" + str(res['wording']))
         if send_voice:  # 如果开启了语音发送
@@ -1149,6 +1235,7 @@ def send_group_message(gid, message, uid, send_voice, message_id):
                                 params={'group_id': int(gid), 'message': voice_message}).json()
             if res["status"] == "ok":
                 print("群语音发送成功")
+                return res
             else:
                 print("群语音发送失败，错误信息：" + str(res['wording']))
     except Exception as error:
@@ -1167,6 +1254,7 @@ def send_group_message_image(gid, pic_path, uid, msg, message_id):
                             params={'group_id': int(gid), 'message': message}).json()
         if res["status"] == "ok":
             print("群消息发送成功")
+            return res
         else:
             print("群消息发送失败，错误信息：" + str(res['wording']))
     except Exception as error:
