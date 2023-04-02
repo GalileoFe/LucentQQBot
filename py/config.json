@@ -23,7 +23,9 @@
 		"voice": "zh_ja_mixture_cleaners",
         "auto_confirm": false,
         "admin_qq": "机器人主人（也就是你）的QQ号_填下面那个别用这个",
-        "stream":false
+        "stream":false,
+        "chunk_chars":75,
+        "page_suffix":true
     },
     "text_to_image": {
         "font_size": 30,

@@ -1098,6 +1098,7 @@ def chat_with_gpt(messages, *args):
             print("start stream")
             import time
             stream_resp = chat_completion(stream=True, messages=messages)
+            page_index = 0
             # 定义收集chunk的变量
             # full_reply_content 用于返回全部文本
             # text_chunk 把回复分块后的chunk, 默认为->超过75字符后遇到 \n 换行符号或句号
@@ -1139,7 +1140,7 @@ def chat_with_gpt(messages, *args):
                 # 默认为75, 可更改.
                 if len(text_chunk) >= (config_data['qq_bot'].get('chunk_chars') if config_data['qq_bot'].get('chunk_chars') else 75) and text_chunk[-1] in ['\n\n', '\n', '.', '。'] and not code_mode and not form_mode:
                     text_chunk = text_chunk[:-2] + text_chunk[-2:].replace('\n', '') + '\n\n' + \
-                                 str(len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {}) + 1) + "/...👇"
+                                 str(page_index + 1) + "/...👇"
                     if args[0] != 0 and config_group_data()[str(args[0])]["group_mode"] == 1:
                         # 首先判断是否为群聊模式, 在套娃式调用到本方法的时候, 会传递uid和gid, 私聊模式传递的gid为0
                         # 如果有群id并且群id所在模式为群聊共享模式, 则执行, 否则不发送消息
@@ -1151,6 +1152,7 @@ def chat_with_gpt(messages, *args):
                     # 如果有消息发送并且成功了, 将消息的id, 发送时间填入msgIDlist中对应的sessionid的字典中
                     if qq_response and qq_response.get('data').get('message_id'):
                         msgIDlist[args[2]].update({qq_response.get('data').get('message_id'): time.time()})
+                        page_index += 1
                     text_chunk = ""
                     # 结束分块判断...
                 # 如果本session中有历史发送的消息, 则循环查看他们是否超过90秒, 超出则撤回
@@ -1161,8 +1163,8 @@ def chat_with_gpt(messages, *args):
                             recall_message(msgID)
             # 结束流式传输
             # 如果流式传输中发送的历史消息不为空以及大于 1, 则在消息底部添加页码
-            if msgIDlist.get(args[2]) and len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {}) > 1:
-                full_reply_content += "\n\n" + str(len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {})) + "/" + str(len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {})) + " 页"
+            if page_index > 1 and (config_data['qq_bot'].get('page_suffix') if config_data['qq_bot'].get('page_suffix') else False):
+                full_reply_content += "\n\n" + str(page_index) + "/" + str(page_index) + " 页"
             resp = full_reply_content
         else:
             resp = chat_completion(stream=False, messages=messages)
