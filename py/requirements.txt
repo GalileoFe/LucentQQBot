@@ -1,7 +1,7 @@
-Flask~=2.2.3
+Flask
 openai==0.27.0
-Pillow~=9.4.0
-requests~=2.28.2
+Pillow
+requests
 tiktoken==0.3.0
 pydub~=0.25.1
 pydantic~=1.10.6
@@ -9,3 +9,4 @@ network~=0.1
 httpx~=0.23.3
 langdetect~=1.0.9
 langid~=1.1.6
+slack_sdk

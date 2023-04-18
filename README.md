@@ -1,10 +1,25 @@
 # LucentQQBot
- Customized QQBot originally made by @Lucent, edited by @Tasse, @空白. Last modified by me.
- 
- 
+ Customized QQBot originally made by @Lucent, edited by @Tasse, @空白. Last modified by me. now suports Claude in Slack
+
  
 # QQ 机器人 🤖
 这是一个 QQ 机器人，它可以执行各种有趣的操作，包括语音合成和预设加载,分段发送回复以及人格关系。
+
+
+# 🎉 更新日志 - 版本2.3 🚀
+在版本2.3的更新中，我们带来了一项令人兴奋的新功能：Claude on Slack的支持！🥳 这将让你们更轻松地与Claude互动并享受更多乐趣！以下是更新内容的简要概述：
+
+## 🌟 新增Claude in Slack的支持:
+现在，您可以在QQ上与Claude in Slack愉快地打交道！🤖 只需查阅Slack_Bot.py文件中的注释，详细了解如何使用与Claude in Slack对话的新方式，并开始轻松愉快的聊天体验。
+## 🎯 更出色的角色扮演功能：
+Claude的角色扮演能力进行了全面升级，让您在与Claude in Slack互动时更加投入和难以忘怀。😎 共同开展激动人心的角色扮演冒险，让您每次与Claude in Slack聊天都充满新鲜感。
+## 💬 兼容原始的对话模式：
+为了让您的体验更加完美，我们已兼容了原始的对话模式。💪 无论您喜欢使用群聊共享还是群聊独立的会话模式，新的Claude都能支持，为您带来愉快的互动体验。
+
+## 🔍千万不要忘记查看 **[帮助文件](https://github.com/BlackPinkiller/LucentQQBot/blob/main/Claude教程（必读！）.pdf)** ！
+ 这是非常重要的一步，能让您充分掌握所有必要信息，避免遇到困难！😮🚨✅
+
+以上仅是本次更新中的部分内容。💫 具体过往内容请前往更新日志查看 🙌 <br>如果您对本次更新的其他功能或信息感兴趣，请随时向我们提问。我们会竭诚为您提供更多帮助！感谢您支持和使用！🎯
 
 # 预设加载 📃
 该机器人可以通过热加载 txt 文件，将其作为预设加载到机器人中。只需将预设文件放入根目录下的 presets 文件夹中，通过" **指令列表** " **重新加载配置文件** 热更新, 更多设置同样通过" **指令列表** "来查看

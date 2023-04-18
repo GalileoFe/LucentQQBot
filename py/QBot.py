@@ -1,6 +1,5 @@
 import json
 import os
-import time
 import traceback
 import uuid
 from copy import deepcopy
@@ -11,12 +10,17 @@ from text_to_image import text_to_image
 from datetime import datetime
 from datetime import timedelta
 from datetime import timezone
+import random
 import re
 import threading
 import importlib
 import tiktoken
 import adv # 导入adv.py
 import banlist # 导入banlist.py
+from Slack_Bot import send_message_to_channel
+from Slack_Bot import sessions as slack_sessions
+from Slack_Bot import switch_message_mode as slack_switch_message_mode
+from Slack_Bot import get_message_mode as slack_get_message_mode
 
 with open("config.json", "r", encoding='utf-8') as jsonfile:
     config_data = json.load(jsonfile)
@@ -30,15 +34,6 @@ if config_data["VITS"]["voice_enable"] == 1:
     from text_to_speech import gen_speech
     from txtReader import read_txt_files
     import asyncio
-
-# 如果stream值不存在则赋值为False
-if not config_data['qq_bot'].get('stream'):
-    config_data['qq_bot']['stream'] = False
-stream_enable = config_data['qq_bot']['stream']
-# 全局变量, 在使用流式传输发送分段文本后添加进去的值
-# 值为[sessionid][消息id].value = 发送时间戳
-# 时间在默认超时90秒或在接受并发送整条gpt回复后遍历撤回
-msgIDlist = {}
 
 def config_wakewords_reload():
     with open("config_individual_wakewords.json", "r", encoding='utf-8') as jsonfile:
@@ -364,15 +359,8 @@ def get_message():
             else:
                 return "错误：没有足够权限来执行此操作."
         else:
-            # 将消息转发给ChatGPT处理
-            msg_text = chat(message, 'P' + str(uid), 0, uid)
+            msg_text = chat(message, 'P' + str(uid))  # 将消息转发给ChatGPT处理
             send_private_message(uid, msg_text, config_data_send_voice)  # 将消息返回的内容发送给用户
-            # 如果有需要撤回的历史消息, 则遍历历史消息字典, 并以key值(消息ID)撤回, value为时间戳
-            # 如果需要key和value则需要加上.items(), 不加默认只返回key值
-            if msgIDlist.get('P' + str(uid)):
-                for msgID in msgIDlist.get('P' + str(uid)):
-                    recall_message(msgID)
-                msgIDlist.get('P' + str(uid)).clear()
 
     if request.get_json().get('message_type') == 'group':  # 如果是群消息
         gid = request.get_json().get('group_id')  # 群号
@@ -458,7 +446,6 @@ def get_message():
                     else:
                         return "错误：没有足够权限来执行此操作."
                 else:
-
                     # 戳一戳
                     if poke_request:
                          message = re.sub(r"(.*)\[CQ:at,qq=(\d+)\]", '', message)
@@ -470,18 +457,10 @@ def get_message():
                         if not str(gid) in config_group_data():
                             update_config_group_json(str(gid), "", 0)
                         if config_group_data()[str(gid)]["group_mode"] != 0:
-                            msg_text = chat(message, 'G' + str(gid), gid, uid)  # 将消息转发给ChatGPT处理（群聊共享对话）
-                            sessionid = 'G' + str(gid)
+                            msg_text = chat(message, 'G' + str(gid))  # 将消息转发给ChatGPT处理（群聊共享对话）
                         else:
-                            msg_text = chat(message, 'G' + str(uid), gid, uid)  # 将消息转发给ChatGPT处理（个人独立对话）
-                            sessionid = 'G' + str(uid)
-                    send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群里
-                    # 如果有需要撤回的历史消息, 则遍历历史消息字典, 并以key值(消息ID)撤回, value为时间戳
-                    # 如果需要key和value则需要加上.items(), 不加默认只返回key值
-                    if msgIDlist.get(sessionid):
-                        for msgID in msgIDlist.get(sessionid):
-                            recall_message(msgID)
-                        msgIDlist.get(sessionid).clear()
+                            msg_text = chat(message, 'G' + str(uid))  # 将消息转发给ChatGPT处理（个人独立对话）
+                    send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群里 
 
     if request.get_json().get('post_type') == 'request':  # 收到请求消息
         print("收到请求消息")
@@ -565,7 +544,7 @@ def reset_chat():
 
 
 # 与ChatGPT交互的方法
-def chat(msg, sessionid, *args):
+def chat(msg, sessionid):
     global config_data
     global config_data_presets
     global config_data_send_voice
@@ -598,25 +577,53 @@ def chat(msg, sessionid, *args):
                     return "错误：没有足够权限来执行此操作."
             else:
                 return "错误：配置文件未启用语音功能."
+        if '切换claude' == msg.strip().lower():
+            config_data['qq_bot']['claude'] = not config_data['qq_bot'].get('claude')
+            return f"Claude状态： {'启用' if config_data['qq_bot']['claude'] else '关闭'}\n当前模式： { '完整对话' if slack_get_message_mode() else '快速对话'}"
+        if '切换claude模式' == msg.strip().lower():
+            if not config_data['qq_bot'].get('claude'):
+                return "请先打开Claude模式,指令“切换claude”"
+            else:
+                return f"切换成功！注意：切换成功前发送的信息有可能会出错。\n当前模式： { '完整对话' if slack_switch_message_mode() else '快速对话'}"
+        if 'claude模式' == msg.strip().lower():
+            if not config_data['qq_bot'].get('claude'):
+                return "请先打开Claude模式,指令“切换claude”"
+            else:
+                return f"当前模式： { '完整对话' if slack_get_message_mode() else '快速对话'}"
         if '重置会话' == msg.strip():
             # 清除对话内容但保留人设
             del session['msg'][1:len(session['msg'])]
             if session['character'] == -2:
-                session['msg'][0] = {"role": "system", "content": data_presets_r('presets\\', data_default_preset)}
-            elif session['character'] > 0:
-                session['msg'][0] = {"role": "system", "content": data_presets_r('presets\\', data_presets_name[session['character']])}
-            return "会话已重置"
+                if config_data["qq_bot"].get("claude"):
+                    slack_sessions.pop(sessionid, None)
+                    send_message_to_channel(message_text=data_presets_r('presets\\', data_default_preset),session_id=sessionid)
+                else:
+                    session['msg'][0] = {"role": "system", "content": data_presets_r('presets\\', data_default_preset)}
+            elif session['character'] >= 0:
+                if config_data["qq_bot"].get("claude"):
+                        slack_sessions.pop(sessionid, None)
+                        send_message_to_channel(message_text=data_presets_r('presets\\', data_presets_name[session['character']]),session_id=sessionid)
+                else:
+                    session['msg'][0] = {"role": "system", "content": data_presets_r('presets\\', data_presets_name[session['character']])}
+            return f"会话已重置"
         if '重置人格' == msg.strip():
             uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
             if ((str(uid) in advanced_users) or (str(uid) in moderator_qq) or (safe_mode == 0)):  # 若用户在advanced_users组中或安全模式关
                 if data_default_preset in data_presets:
-                    # 清空对话内容并恢复预设人设
-                    session['msg'] = [
-                        {"role": "system", "content": data_presets_r('presets\\', data_default_preset)}
-                    ]
+                    if config_data["qq_bot"].get("claude"):
+                        slack_sessions.pop(sessionid, None)
+                        send_message_to_channel(message_text=data_presets_r('presets\\', data_default_preset),session_id=sessionid)
+                    else:
+                        # 清空对话内容并恢复预设人设
+                        session['msg'] = [
+                            {"role": "system", "content": data_presets_r('presets\\', data_default_preset)}
+                        ]
                     session['character'] = -2
                     return '人格已重置 当前人格：' + data_default_preset
                 else:
+                    if config_data["qq_bot"].get("claude"):
+                        slack_sessions.pop(sessionid, None)
+                        return '人格已重置 当前人格：' + " 无预设Claude"
                     # 清空对话内容并恢复预设人设
                     session['msg'] = [
                         {"role": "system", "content": ""}
@@ -626,26 +633,35 @@ def chat(msg, sessionid, *args):
             else:
                 if data_default_preset in data_presets:
                     # 清空对话内容并恢复预设人设
-                    session['msg'] = [
-                        {"role": "system", "content": data_presets_r('presets\\', safe_presets[0])}
-                    ]
+                    if config_data["qq_bot"].get("claude"):
+                        slack_sessions.pop(sessionid, None)
+                        send_message_to_channel(message_text=data_presets_r('presets\\', safe_presets[0]),session_id=sessionid)
+                    else:
+                        session['msg'] = [
+                            {"role": "system", "content": data_presets_r('presets\\', safe_presets[0])}
+                        ]
                     session['character'] = -2
                     return '人格已重置 当前人格：' + safe_presets[0]
                 else:
                     # 清空对话内容并恢复预设人设
+                    if config_data["qq_bot"].get("claude"):
+                        slack_sessions.pop(sessionid, None)
+                        return '人格已重置 当前人格：' + " 无预设Claude"
                     session['msg'] = [
                         {"role": "system", "content": ""}
                     ]
                     session['character'] = -3
                     return '人格已重置 当前人格：' + "ChatGPT"
         if '查询余额' == msg.strip():
+            if config_data["qq_bot"].get("claude"):
+                return "Claude模式下无法查询余额"
             text = ""
             for i in range(len(config_data['openai']['api_key'])):
                 text = text + "Key_" + str(i + 1) + " 余额: " + str(round(get_credit_summary_by_index(i), 2)) + "美元\n"
             return text
         if '指令说明' == msg.strip():
             return '指令如下(群内需@机器人或开头加上该人格的名字[仅预设])：\n1.[重置会话] 请发送 重置会话\n2.[切换人格] 请发送 "切换人格 人格排序号（或人格名）"(发送"人格列表"可以查看所有人格预设)\n3.[自定义人格] 请发送 "自定义人格 <该人格的描述>"\n4.[人格列表] 请发送 人格列表\n5.[重置人格] 请发送 重置人格\n6.[忘记上一条对话]请发送 忘记上一条对话\n7.[当前人格] 请发送 当前人格\n8.[指令说明] 请发送 ' \
-                   '指令说明\n9.[查看群聊对话模式] 请发送 查看群聊对话模式\n10.[切换群聊对话模式] 请管理员发送 切换群聊对话模式\n11.[添加权限] 请管理员发送 "添加权限 QQ号"\n12.[切换安全模式] 请管理员发送 切换安全模式\n13.[重新加载配置文件] 热更新配置及新增（或删除）的人格文件\n14.[新增人格关系] 请发送"添加人格关系 QQ号-关系-关系前缀"\n15.[删除人格关系] 请发送"删除人格关系 QQ"\n16.[查看人格关系] 请发送"查看人格关系"\n注意：\n重置会话不会清空人格,重置人格会重置会话!\n设置人格后人格将一直存在，除非重置人格或重启逻辑端!'
+                   '指令说明\n9.[查看群聊对话模式] 请发送 查看群聊对话模式\n10.[切换群聊对话模式] 请管理员发送 切换群聊对话模式\n11.[添加权限] 请管理员发送 "添加权限 QQ号"\n12.[切换安全模式] 请管理员发送 切换安全模式\n13.[重新加载配置文件] 热更新配置及新增（或删除）的人格文件\n14.[新增人格关系] 请发送"添加人格关系 QQ号-关系-关系前缀"\n15.[删除人格关系] 请发送"删除人格关系 QQ"\n16.[查看人格关系] 请发送"查看人格关系\n17.[切换claude]开启/关闭Claude模式(全局有效)\n18.[切换claude模式]在Claude的完整对话和快速对话模式中切换\n19.[claude模式]查看Claude当前的对话模式"\n注意：\n重置会话不会清空人格,重置人格会重置会话!\n设置人格后人格将一直存在，除非重置人格或重启逻辑端!'
         '''
         if msg.strip().startswith('/img'):
             msg = str(msg).replace('/img', '')
@@ -654,6 +670,8 @@ def chat(msg, sessionid, *args):
             return "![](" + pic_path + ")"
         '''
         if '忘记上一条对话' == msg.strip():
+            if config_data["qq_bot"].get("claude"):
+                return "Claude不支持这个功能"
             if session['msg'][-1]["role"] != "assistant":
                 if session['msg'][-1]["role"] == "system":
                     return "错误：没有可供清除的对话。"
@@ -685,9 +703,25 @@ def chat(msg, sessionid, *args):
                 matched = False
                 for i in range(0, len(data_presets_name)-3):
                     if (ques_l == str(i) or ques_l == data_presets_name[i].lower() or ques_l == str(i) + "、" + data_presets_name[i].lower()) and ques_l != "":
-                        session['msg'] = [
-                            {"role": "system", "content": data_presets_r('presets\\', data_presets_name[i])}
-                        ]
+                        modified = True
+                        try:
+                            trans_text = eval(data_presets_name[i])
+                        except Exception:
+                            modified = False
+                        if modified:
+                            if config_data["qq_bot"].get("claude"):
+                                slack_sessions.pop(sessionid, None)
+                                send_message_to_channel(message_text=trans_text,session_id=sessionid)
+                            else:
+                                session['msg'] = trans_text
+                        else:
+                            if config_data["qq_bot"].get("claude"):
+                                slack_sessions.pop(sessionid, None)
+                                send_message_to_channel(message_text=data_presets_r('presets\\', data_presets_name[i]),session_id=sessionid)
+                            else:
+                                session['msg'] = [
+                                    {"role": "system", "content": data_presets_r('presets\\', data_presets_name[i])}
+                                ]
                         session['character'] = i
                         matched = True
                         if request.get_json().get('message_type') == 'group':
@@ -700,9 +734,13 @@ def chat(msg, sessionid, *args):
                         break
                     elif ques_l == "": # 当输入空消息时
                         if data_default_preset in data_presets:
-                            session['msg'] = [
-                                {"role": "system", "content": data_presets_r('presets\\', data_default_preset)} # 切换至默认人格
-                            ]
+                            if config_data["qq_bot"].get("claude"):
+                                slack_sessions.pop(sessionid, None)
+                                send_message_to_channel(message_text=data_presets_r('presets\\', data_default_preset),session_id=sessionid)
+                            else:
+                                session['msg'] = [
+                                    {"role": "system", "content": data_presets_r('presets\\', data_default_preset)} # 切换至默认人格
+                                ]
                             session['character'] = -2
                             matched = True
                             if request.get_json().get('message_type') == 'group':
@@ -714,9 +752,12 @@ def chat(msg, sessionid, *args):
                             return '人格切换成功 当前人格：' + data_default_preset
                             break
                         else:
-                            session['msg'] = [
-                                {"role": "system", "content": ""} # 切换至ChatGPT人格
-                            ]
+                            if config_data["qq_bot"].get("claude"):
+                                slack_sessions.pop(sessionid, None)
+                            else:
+                                session['msg'] = [
+                                    {"role": "system", "content": ""} # 切换至ChatGPT人格
+                                ]
                             session['character'] = -3
                             matched = True
                             if request.get_json().get('message_type') == 'group':
@@ -729,9 +770,13 @@ def chat(msg, sessionid, *args):
                             break
                 # 当用户输入与上述任何一种情况不匹配时
                 if matched == False:
-                    session['msg'] = [
-                        {"role": "system", "content": ques}
-                    ]                                                                       # 直接将输入自定义人设写入session
+                    if config_data["qq_bot"].get("claude"):
+                        slack_sessions.pop(sessionid, None)
+                        send_message_to_channel(message_text=ques,session_id=sessionid)
+                    else:
+                        session['msg'] = [
+                            {"role": "system", "content": ques}
+                        ]                                                                       # 直接将输入自定义人设写入session
                     session['character'] = -1
                     if request.get_json().get('message_type') == 'group':
                         if str(gid) in config_group_data().keys():
@@ -779,9 +824,13 @@ def chat(msg, sessionid, *args):
                     # 重置人格
                     if data_default_preset in data_presets:
                         # 清空对话内容并恢复预设人设
-                        session['msg'] = [
-                            {"role": "system", "content": data_presets_r('presets\\', data_default_preset)}
-                        ]
+                        if config_data["qq_bot"].get("claude"):
+                            slack_sessions.pop(sessionid, None)
+                            send_message_to_channel(message_text=data_presets_r('presets\\', data_default_preset),session_id=sessionid)
+                        else:
+                            session['msg'] = [
+                                {"role": "system", "content": data_presets_r('presets\\', data_default_preset)}
+                            ]
                         session['character'] = -2
                         if config_group_data()[str(gid)]["group_mode"] < 2:
                             update_config_group_json(str(gid), "-2", config_group_data()[str(gid)]["group_mode"] + 1)
@@ -789,9 +838,12 @@ def chat(msg, sessionid, *args):
                             update_config_group_json(str(gid), "-2", 0)
                     else:
                         # 清空对话内容并恢复预设人设
-                        session['msg'] = [
-                            {"role": "system", "content": ""}
-                        ]
+                        if config_data["qq_bot"].get("claude"):
+                            slack_sessions.pop(sessionid, None)
+                        else:
+                            session['msg'] = [
+                                {"role": "system", "content": ""}
+                            ]
                         session['character'] = -3
                         if config_group_data()[str(gid)]["group_mode"] < 2:
                             update_config_group_json(str(gid), "-3", config_group_data()[str(gid)]["group_mode"] + 1)
@@ -896,9 +948,13 @@ def chat(msg, sessionid, *args):
             uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
             if ((str(uid) in advanced_users) or (str(uid) in moderator_qq) or (safe_mode == 0)): # 若用户在advanced_users组中或安全模式关
                 # 清空对话并设置人设
-                session['msg'] = [
-                    {"role": "system", "content": msg.strip().replace('自定义人格', '')}
-                ]
+                if config_data["qq_bot"].get("claude"):
+                    slack_sessions.pop(sessionid, None)
+                    send_message_to_channel(message_text=msg.strip().replace('自定义人格', ''),session_id=sessionid)
+                else:
+                    session['msg'] = [
+                        {"role": "system", "content": msg.strip().replace('自定义人格', '')}
+                    ]
                 session['character'] = -1
                 if request.get_json().get('message_type') == 'group':
                     if str(gid) in config_group_data().keys():
@@ -979,9 +1035,10 @@ def chat(msg, sessionid, *args):
         if len(session['msg']) < 2:
             session['msg'].append(None)
         session['msg'][1] = {"role": "system", "content": "current time is:" + get_bj_time()}
+        message_edited = msg
         # 设置本次对话内容
         if request.get_json().get('message_type') == 'group':
-            if config_group_data()[str(gid)]["group_mode"] == 1 or config_group_data()[str(gid)]["group_mode"] != 0: # 判断是否群聊
+            if config_group_data()[str(gid)]["group_mode"] != 0: # 判断是否群聊
                 if session['character'] < 0 and config_group_data()[str(gid)]["presets"] in data_presets:
                     session['msg'] = [
                         {"role": "system", "content": data_presets_r('presets\\', config_group_data()[str(gid)]["presets"])}
@@ -1010,19 +1067,26 @@ def chat(msg, sessionid, *args):
                         msg_suffix = ""
                     msg_prefix = msg_prefix.replace('$user_qq$', str(uid))
                     msg_prefix = msg_prefix.replace('$user_name$', str(uname))
-                # 检查uid键是否存在于gid中
-                if str(gid) in config_group_relation_data() and str(uid) in config_group_relation_data()[str(gid)]:
-                    # 使用关系生成消息前缀
-                    msg_prefix = msg_prefix.replace('$user_rel$', config_group_relation_data()[str(gid)][str(uid)]["relation"])
-                    session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)][str(uid)]["additional"]})
-                
-                elif '默认' in config_group_relation_data().get(str(gid), {}):
-                    # 使用默认关系生成消息前缀
-                    msg_prefix = msg_prefix.replace('$user_rel$', config_group_relation_data()[str(gid)]['默认']["relation"])
-                    session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)]['默认']["additional"]})
                 else:
-                    # 没有找到关系信息，不使用关系生成消息前缀
-                    session['msg'].append({"role": "user", "content": msg})
+                    msg_prefix = ""
+                    msg_suffix = ""
+                if session['character'] >= 0:
+                    # 检查uid键是否存在于gid中
+                    if str(gid) in config_group_relation_data() and str(uid) in config_group_relation_data()[str(gid)]:
+                        # 使用关系生成消息前缀
+                        msg_prefix = msg_prefix.replace('$user_rel$', config_group_relation_data()[str(gid)][str(uid)]["relation"])
+                        session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)][str(uid)]["additional"]})
+                        message_edited = msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)][str(uid)]["additional"]
+                    elif '默认' in config_group_relation_data().get(str(gid), {}):
+                        # 使用默认关系生成消息前缀
+                        msg_prefix = msg_prefix.replace('$user_rel$', config_group_relation_data()[str(gid)]['默认']["relation"])
+                        session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)]['默认']["additional"]})
+                        message_edited = msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)]['默认']["additional"]
+                    else:
+                        # 没有找到关系信息，不使用关系生成消息前缀
+                        msg_prefix = msg_prefix.replace('$user_rel$', "")
+                        session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix})
+                        message_edited = msg_prefix + msg + msg_suffix
             else:
                 session['msg'].append({"role": "user", "content": msg})
         else:
@@ -1032,15 +1096,19 @@ def chat(msg, sessionid, *args):
             session['msg'].append(None)
         session['msg'][1] = {"role": "system", "content": "current time is:" + get_bj_time()}
         # 检查是否超过tokens限制
-        while num_tokens_from_messages(session['msg']) > config_data['chatgpt']['max_tokens']:
-            # 当超过记忆保存最大量时，清理一条
-            del session['msg'][2:3]
-        print("上下文：")
-        print(session['msg'])
+        if not config_data['qq_bot'].get('claude'):
+            while num_tokens_from_messages(session['msg']) > config_data['chatgpt']['max_tokens']:
+                # 当超过记忆保存最大量时，清理一条
+                del session['msg'][2:3]
+            print("上下文：")
+            print(session['msg'])
         # 与ChatGPT交互获得对话内容
-        message = chat_with_gpt(session['msg'], *args, sessionid)
+        if config_data['qq_bot'].get('claude'):
+            message = send_message_to_channel(message_text=message_edited,session_id=sessionid)
+        else:
+            message = chat_with_gpt(session['msg'])
         # 记录上下文
-        session['msg'].append({"role": "assistant", "content": message if message[-1]!= '页' else message[:-5]})
+        session['msg'].append({"role": "assistant", "content": message})
         print("会话ID: " + str(sessionid))
         print("ChatGPT返回内容: ")
         print(message)
@@ -1073,16 +1141,7 @@ def get_chat_session(sessionid):
     return sessions[sessionid]
 
 
-def chat_with_gpt(messages, *args):
-    """
-
-    Args:
-        messages: 要发送给gpt的文本, 为用户输入
-        *args: 0,1,2 分别是 gid, uid, sessionid, 这也是不改动源代码我想到比较好的方法
-
-    Returns:
-        返回完整的gpt回复, str方式
-    """
+def chat_with_gpt(messages):
     global current_key_index
     max_length = len(config_data['openai']['api_key']) - 1
     try:
@@ -1093,82 +1152,16 @@ def chat_with_gpt(messages, *args):
                 current_key_index = 0
                 return "全部Key均已达到速率限制,请等待一分钟后再尝试"
             openai.api_key = config_data['openai']['api_key'][current_key_index]
-        # 如果stream开启则开始使用stream方法
-        if config_data['qq_bot'].get('stream') if config_data['qq_bot'].get('stream') else stream_enable:
-            print("start stream")
-            import time
-            stream_resp = chat_completion(stream=True, messages=messages)
-            page_index = 0
-            # 定义收集chunk的变量
-            # full_reply_content 用于返回全部文本
-            # text_chunk 把回复分块后的chunk, 默认为->超过75字符后遇到 \n 换行符号或句号
-            # chunk_collection 用于比对数据, 捕捉代码块
-            full_reply_content = ""
-            text_chunk = ""
-            chunk_collection = []
-            # 提前判断本session发送的需要撤回的text_chunk列表是否存在
-            # 不赋值的话会报错, >>已经再下方使用 if 避免了报错, 但是需要赋空值才能放入数据
-            if not msgIDlist.get(args[2]):
-                msgIDlist[args[2]] = {}
-            qq_response = None
-            # 不太好看的代码, 用于判断 代码块模式, 列表模式, code_count避免在刚判断为code_mode后重复赋值
-            code_mode = False
-            code_count = 15
-            form_mode = False
-            # 开始流式传输...
-            # chunk为每次gpt返回的一个单个类似token的东西
-            # chunk不一定为1个字符
-            # 同样的结构chunk每次不一定一样, 所以才需要判断一个chunk范围来确定是否是代码块
-            for chunk in stream_resp:
-                # 复用当前chunk数据, 所有提前赋一下值让代码好读
-                chunk_content = chunk['choices'][0]['delta'].get('content', '')
-                if '```' in chunk_content or (len(chunk_collection) > 0 and '```' in chunk_collection[-1]['choices'][0]['delta'].get('content', '') + chunk_content) and code_count > 7:
-                    code_mode = not code_mode
-                    code_count = 0
-                if '|' in chunk_content and not form_mode:
-                    form_mode = True
-                if '|\n\n' in chunk_content or (len(chunk_collection) > 0 and '|\n\n' in chunk_collection[-1]['choices'][0]['delta'].get('content', '') + chunk_content) and form_mode:
-                    form_mode = False
-                if code_mode:
-                    code_count += 1
-                # 使用本次chunk更新收集chunk的变量
-                chunk_collection.append(chunk)
-                text_chunk += ''.join(chunk_content)
-                full_reply_content += ''.join(chunk_content)
-                # 根据配置文件中的 "qq_bot" -> "chunk_chars" 参数，
-                # 将响应分成较小的块。这个参数指定用于将响应拆分成块的字符。
-                # 默认为75, 可更改.
-                if len(text_chunk) >= (config_data['qq_bot'].get('chunk_chars') if config_data['qq_bot'].get('chunk_chars') else 75) and text_chunk[-1] in ['\n\n', '\n', '.', '。'] and not code_mode and not form_mode:
-                    text_chunk = text_chunk[:-2] + text_chunk[-2:].replace('\n', '') + '\n\n' + \
-                                 str(page_index + 1) + "/...👇"
-                    if args[0] != 0 and config_group_data()[str(args[0])]["group_mode"] == 1:
-                        # 首先判断是否为群聊模式, 在套娃式调用到本方法的时候, 会传递uid和gid, 私聊模式传递的gid为0
-                        # 如果有群id并且群id所在模式为群聊共享模式, 则执行, 否则不发送消息
-                        # args[0],[1],[2], 分别是 gid, uid, sessionid, 这也是不改动源代码我想到比较好的方法
-                        qq_response = send_group_message(args[0], text_chunk, args[1] if len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {}) == 0 else 0,
-                                                         config_data_send_voice, 0)
-                    elif args[0] == 0:
-                        qq_response = send_private_message(args[1], text_chunk, config_data_send_voice)
-                    # 如果有消息发送并且成功了, 将消息的id, 发送时间填入msgIDlist中对应的sessionid的字典中
-                    if qq_response and qq_response.get('data').get('message_id'):
-                        msgIDlist[args[2]].update({qq_response.get('data').get('message_id'): time.time()})
-                        page_index += 1
-                    text_chunk = ""
-                    # 结束分块判断...
-                # 如果本session中有历史发送的消息, 则循环查看他们是否超过90秒, 超出则撤回
-                # 不使用get语句的话会报错, 先判断再执行
-                if msgIDlist.get(args[2]):
-                    for msgID, time_stamp in msgIDlist.get(args[2]).items():
-                        if time.time() - time_stamp > 90:
-                            recall_message(msgID)
-            # 结束流式传输
-            # 如果流式传输中发送的历史消息不为空以及大于 1, 则在消息底部添加页码
-            if page_index > 1 and (config_data['qq_bot'].get('page_suffix') if config_data['qq_bot'].get('page_suffix') else False):
-                full_reply_content += "\n\n" + str(page_index) + "/" + str(page_index) + " 页"
-            resp = full_reply_content
-        else:
-            resp = chat_completion(stream=False, messages=messages)
-            resp = resp['choices'][0]['message']['content']
+        
+        resp = openai.ChatCompletion.create(
+            model=config_data['chatgpt']['model'],
+            messages=messages,
+            temperature=config_data['chatgpt']['temperature'],
+            top_p=config_data['chatgpt']['top_p'],
+            presence_penalty=config_data['chatgpt']['presence_penalty'],
+            frequency_penalty=config_data['chatgpt']['frequency_penalty']
+            )
+        resp = resp['choices'][0]['message']['content']
     except openai.OpenAIError as e:
         if str(e).__contains__("Rate limit reached for default-gpt-3.5-turbo") and current_key_index <= max_length:
             # 切换key
@@ -1187,28 +1180,6 @@ def chat_with_gpt(messages, *args):
         else:
             print('openai 接口报错: ' + str(e))
             resp = str(e)
-    return resp
-
-
-def chat_completion(stream: False, messages: ""):
-    """
-    为代码复用性而单独写的一个函数
-    Args:
-        stream:bool: 是否为流式传输
-        messages:str: 用户输入文本
-
-    Returns:
-        resp:流式传输的openai Generator对象
-    """
-    resp = openai.ChatCompletion.create(
-        model=config_data['chatgpt']['model'],
-        messages=messages,
-        temperature=config_data['chatgpt']['temperature'],
-        top_p=config_data['chatgpt']['top_p'],
-        presence_penalty=config_data['chatgpt']['presence_penalty'],
-        frequency_penalty=config_data['chatgpt']['frequency_penalty'],
-        stream=stream
-    )
     return resp
 
 
@@ -1236,7 +1207,6 @@ def send_private_message(uid, message, send_voice):
                             params={'user_id': int(uid), 'message': message}).json()
         if res["status"] == "ok":
             print("私聊消息发送成功")
-            return res
         else:
             print(res)
             print("私聊消息发送失败，错误信息：" + str(res['wording']))
@@ -1245,15 +1215,6 @@ def send_private_message(uid, message, send_voice):
         print("私聊消息发送失败")
         print(error)
 
-
-def recall_message(message_id) -> None:
-    """
-    撤回函数, 会在控制台打印出状态
-    Args:
-        message_id: 要撤回的消息id
-    """
-    print("recall message. id: {} status:{}".format(message_id, requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/delete_msg",
-                                                                             params={'message_id': message_id})))
 
 # 发送私聊消息方法 uid为qq号，pic_path为图片地址
 def send_private_message_image(uid, pic_path, msg):
@@ -1284,17 +1245,15 @@ def send_group_message(gid, message, uid, send_voice, message_id):
                                 params={'group_id': int(gid), 'message': pic_message}).json()
             if res["status"] == "ok":
                 print("群图片发送成功")
-                return res
             else:
                 print("群图片发送失败，错误信息：" + str(res['wording']))
         else:
             message_message = message
-            message_message = (str('[CQ:at,qq=%s]\n' % uid) + message_message) if uid != 0 else message  # @发言人
+            message_message = str('[CQ:at,qq=%s]\n' % uid) + message_message  # @发言人
             res = requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/send_group_msg",
                                 params={'group_id': int(gid), 'message': message_message}).json()
             if res["status"] == "ok":
                 print("群消息发送成功")
-                return res
             else:
                 print("群消息发送失败，错误信息：" + str(res['wording']))
         if send_voice:  # 如果开启了语音发送
@@ -1306,7 +1265,6 @@ def send_group_message(gid, message, uid, send_voice, message_id):
                                 params={'group_id': int(gid), 'message': voice_message}).json()
             if res["status"] == "ok":
                 print("群语音发送成功")
-                return res
             else:
                 print("群语音发送失败，错误信息：" + str(res['wording']))
     except Exception as error:
@@ -1325,7 +1283,6 @@ def send_group_message_image(gid, pic_path, uid, msg, message_id):
                             params={'group_id': int(gid), 'message': message}).json()
         if res["status"] == "ok":
             print("群消息发送成功")
-            return res
         else:
             print("群消息发送失败，错误信息：" + str(res['wording']))
     except Exception as error:

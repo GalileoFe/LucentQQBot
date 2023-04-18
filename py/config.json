@@ -2,7 +2,7 @@
 	"openai": {
 		"api_key": [""],
 		"img_size": "1024x1024",
-		"endpoint": "https://chat-gpt.aurorax.cloud/v1"
+		"endpoint": "https://gpt.lucent.blog/v1"
 	},
     "chatgpt": {
         "model": "gpt-3.5-turbo",
@@ -22,10 +22,11 @@
 		"voice_path": "",
 		"voice": "zh_ja_mixture_cleaners",
         "auto_confirm": false,
-        "admin_qq": "机器人主人（也就是你）的QQ号_填下面那个别用这个",
-        "stream":false,
-        "chunk_chars":75,
-        "page_suffix":true
+        "admin_qq": "机器人主人（也就是你）的QQ号",
+        "stream": false,
+        "chunk_chars": 75,
+        "page_suffix": false,
+        "claude" : false
     },
     "text_to_image": {
         "font_size": 30,
@@ -36,10 +37,11 @@
     },
 	"QBot": {
 		"default_preset":"Yuki",
-		"moderator_qq": ["机器人主人（也就是你）的QQ号"],
+		"moderator_qq": ["123456"],
 		"safe_mode": 0,
 		"safe_presets": ["Yuki"],
-		"general_wakewords": ["怎么","为什么"]
+		"general_wakewords": ["怎么","为什么"],
+		"allow_session_read": 1
 	},
 	"VITS": {
 		"voice_enable": 0,
