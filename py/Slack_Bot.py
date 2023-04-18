@@ -6,7 +6,7 @@ from slack_sdk.errors import SlackApiError
 from slack_sdk.errors import SlackClientError
 
 # 在[Slack App]->[OAuth & Permissions]->[User OAuth Token] (xoxp-...)中找到令牌
-SLACK_USER_TOKEN = "xoxp-0000000000000-0000000000000-0000000000000-00000000000000000000000000000000"
+SLACK_USER_TOKEN = "0000-0000000000000-0000000000000-0000000000000-00000000000000000000000000000000"
 
 # channel_id在频道URL中找到，例如https://app.slack.com/client/T000000000/C0533PLC7V4 中的C0533PLC7V4
 # 只需要打开你想要发送消息的频道，然后在地址栏中找到
@@ -40,6 +40,8 @@ max_retries = 5
 
 def send_message_to_channel(channel_id:str=channel_id, message_text:str = "",session_id:str = "g01"):
     try:
+        if SLACK_USER_TOKEN[:4] != "xoxp":
+            return "USER_TOKEN错误，请检查是否填写正确。"
         is_new_session = False
         uniq_ID = message_text + str(uuid.uuid1())[:8]
 

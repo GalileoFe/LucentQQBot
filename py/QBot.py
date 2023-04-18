@@ -579,6 +579,12 @@ def chat(msg, sessionid):
                 return "错误：配置文件未启用语音功能."
         if '切换claude' == msg.strip().lower():
             config_data['qq_bot']['claude'] = not config_data['qq_bot'].get('claude')
+            if config_data['qq_bot'].get('claude'):
+                if sessionid not in slack_sessions:
+                    if session['character'] == -2:
+                        send_message_to_channel(message_text=data_presets_r('presets\\', data_default_preset),session_id=sessionid)
+                    elif session['character'] >= 0:
+                        send_message_to_channel(message_text=data_presets_r('presets\\', data_presets_name[session['character']]),session_id=sessionid)
             return f"Claude状态： {'启用' if config_data['qq_bot']['claude'] else '关闭'}\n当前模式： { '完整对话' if slack_get_message_mode() else '快速对话'}"
         if '切换claude模式' == msg.strip().lower():
             if not config_data['qq_bot'].get('claude'):
@@ -592,7 +598,8 @@ def chat(msg, sessionid):
                 return f"当前模式： { '完整对话' if slack_get_message_mode() else '快速对话'}"
         if '重置会话' == msg.strip():
             # 清除对话内容但保留人设
-            del session['msg'][1:len(session['msg'])]
+            if not config_data["qq_bot"].get("claude"):
+                del session['msg'][1:len(session['msg'])]
             if session['character'] == -2:
                 if config_data["qq_bot"].get("claude"):
                     slack_sessions.pop(sessionid, None)
@@ -1075,22 +1082,33 @@ def chat(msg, sessionid):
                     if str(gid) in config_group_relation_data() and str(uid) in config_group_relation_data()[str(gid)]:
                         # 使用关系生成消息前缀
                         msg_prefix = msg_prefix.replace('$user_rel$', config_group_relation_data()[str(gid)][str(uid)]["relation"])
-                        session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)][str(uid)]["additional"]})
-                        message_edited = msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)][str(uid)]["additional"]
+                        if config_data['qq_bot'].get('claude'):
+                            message_edited = msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)][str(uid)]["additional"]
+                        else:
+                            session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)][str(uid)]["additional"]})
+                        
                     elif '默认' in config_group_relation_data().get(str(gid), {}):
                         # 使用默认关系生成消息前缀
                         msg_prefix = msg_prefix.replace('$user_rel$', config_group_relation_data()[str(gid)]['默认']["relation"])
-                        session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)]['默认']["additional"]})
-                        message_edited = msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)]['默认']["additional"]
+                        if config_data['qq_bot'].get('claude'):
+                            message_edited = msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)]['默认']["additional"]
+                        else:
+                            session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix + config_group_relation_data()[str(gid)]['默认']["additional"]})
+                        
                     else:
                         # 没有找到关系信息，不使用关系生成消息前缀
                         msg_prefix = msg_prefix.replace('$user_rel$', "")
-                        session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix})
-                        message_edited = msg_prefix + msg + msg_suffix
+                        if config_data['qq_bot'].get('claude'):
+                            message_edited = msg_prefix + msg + msg_suffix
+                        else:
+                            session['msg'].append({"role": "user", "content": msg_prefix + msg + msg_suffix})
+                        
             else:
-                session['msg'].append({"role": "user", "content": msg})
+                if not config_data['qq_bot'].get('claude'):
+                    session['msg'].append({"role": "user", "content": msg})
         else:
-            session['msg'].append({"role": "user", "content": msg})
+            if not config_data['qq_bot'].get('claude'):
+                session['msg'].append({"role": "user", "content": msg})
         # 更新时间
         if len(session['msg']) < 2:
             session['msg'].append(None)
@@ -1108,7 +1126,8 @@ def chat(msg, sessionid):
         else:
             message = chat_with_gpt(session['msg'])
         # 记录上下文
-        session['msg'].append({"role": "assistant", "content": message})
+        if not config_data['qq_bot'].get('claude'):
+            session['msg'].append({"role": "assistant", "content": message})
         print("会话ID: " + str(sessionid))
         print("ChatGPT返回内容: ")
         print(message)
