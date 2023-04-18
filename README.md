@@ -1,6 +1,6 @@
 # LucentQQBot
  Customized QQBot originally made by @Lucent, edited by @Tasse, @空白. Last modified by me. 
- now suports Claude in Slack
+ **<br>🌟now suports Claude in Slack🌟**
 
  
 # QQ 机器人 🤖
