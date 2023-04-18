@@ -120,7 +120,7 @@ def send_message_to_channel(channel_id:str=channel_id, message_text:str = "",ses
                 #     pop_index = queue_message.get(session_id).index(uniq_ID)
                 #     queue_message.get(session_id).pop(pop_index)
                 break
-            time.sleep(3)
+            time.sleep(1)
             
         # print(f"Message sent to channel {channel_id}...\nResponds:\n{response}")
         # 解锁会话
