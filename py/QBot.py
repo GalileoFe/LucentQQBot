@@ -15,6 +15,7 @@ import re
 import threading
 import importlib
 import tiktoken
+import html
 import adv # 导入adv.py
 import banlist # 导入banlist.py
 from Slack_Bot import send_message_to_channel
@@ -47,6 +48,8 @@ def config_reload():
 
 def banlist_reload():
     importlib.reload(banlist)
+    global ban_person
+    global ban_group
     ban_person = banlist.ban_person
     ban_group = banlist.ban_group
 
@@ -442,6 +445,7 @@ def get_message():
                         data_presets1 = data_presets_fc1()
                         data_presets2 = data_presets_fc2()
                         print("配置文件已重新加载")
+                        msg_text = "配置文件已重新加载"
                         send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群用户
                     else:
                         return "错误：没有足够权限来执行此操作."
@@ -561,6 +565,12 @@ def chat(msg, sessionid):
             return '您好，我是人工智能助手，如果您有任何问题，请随时告诉我，我将尽力回答。\n如果您需要重置我们的会话，请回复`重置会话`'
         # 获得对话session
         session = get_chat_session(sessionid)
+        if config_data['qq_bot']['claude'] == True:
+            if sessionid not in slack_sessions:
+                if session['character'] == -2:
+                    send_message_to_channel(message_text=data_presets_r('presets\\', data_default_preset),session_id=sessionid)
+                elif session['character'] >= 0:
+                    send_message_to_channel(message_text=data_presets_r('presets\\', data_presets_name[session['character']]),session_id=sessionid)
         if '语音回复' == msg.strip():
             uid = request.get_json().get('sender').get('user_id')  # 发言者的qq号
             if config_data["VITS"]["voice_enable"] == 1:  # 管理员权限
@@ -1130,8 +1140,8 @@ def chat(msg, sessionid):
             session['msg'].append({"role": "assistant", "content": message})
         print("会话ID: " + str(sessionid))
         print("ChatGPT返回内容: ")
-        print(message)
-        return message
+        print(html.unescape(message))
+        return html.unescape(message)
     except Exception as error:
         traceback.print_exc()
         return str('异常: ' + str(error))
