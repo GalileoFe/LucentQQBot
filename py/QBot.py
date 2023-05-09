@@ -674,7 +674,7 @@ def chat(msg, sessionid):
                 return "Claude模式下无法查询余额"
             text = ""
             for i in range(len(config_data['openai']['api_key'])):
-                text = text + "Key_" + str(i + 1) + " 余额: " + str(round(get_credit_summary_by_index(i), 2)) + "美元\n"
+                text = text + "Key_" + str(i + 1) + " 用量: " + get_credit_summary_by_index(i) + "\n"
             return text
         if '指令说明' == msg.strip():
             return '指令如下(群内需@机器人或开头加上该人格的名字[仅预设])：\n1.[重置会话] 请发送 重置会话\n2.[切换人格] 请发送 "切换人格 人格排序号（或人格名）"(发送"人格列表"可以查看所有人格预设)\n3.[自定义人格] 请发送 "自定义人格 <该人格的描述>"\n4.[人格列表] 请发送 人格列表\n5.[重置人格] 请发送 重置人格\n6.[忘记上一条对话]请发送 忘记上一条对话\n7.[当前人格] 请发送 当前人格\n8.[指令说明] 请发送 ' \
@@ -1355,20 +1355,51 @@ def get_openai_image(des):
 
 # 查询账户余额
 def get_credit_summary():
-    url = "https://chat-gpt.aurorax.cloud/dashboard/billing/credit_grants"
-    res = requests.get(url, headers={
-        "Authorization": f"Bearer " + config_data['openai']['api_key'][current_key_index]
-    }, timeout=60).json()
-    return res
-
+    return checkBalance(config_data['openai']['api_key'][current_key_index])
 
 # 查询账户余额
 def get_credit_summary_by_index(index):
-    url = "https://chat-gpt.aurorax.cloud/dashboard/billing/credit_grants"
-    res = requests.get(url, headers={
-        "Authorization": f"Bearer " + config_data['openai']['api_key'][index]
-    }, timeout=60).json()
-    return res['total_available']
+    return checkBalance(config_data['openai']['api_key'][index])
+
+def checkBalance(key):
+    try:
+        import datetime
+        curr_time = datetime.datetime.now()
+        next_month = curr_time.replace(day=28) + datetime.timedelta(days=4)
+
+        last_day_of_month = (next_month - datetime.timedelta(days=next_month.day)).strftime("%Y-%m-%d")
+        first_day_of_month = curr_time.replace(day=1).strftime("%Y-%m-%d")
+        usage_url = f"{'https://api.openai.com/dashboard/billing/usage'}?start_date={first_day_of_month}&end_date={last_day_of_month}"
+        next_day = curr_time + datetime.timedelta(days=1)
+        usage_url_today = f"{'https://api.openai.com/dashboard/billing/usage'}?start_date={curr_time.strftime('%Y-%m-%d')}&end_date={next_day.strftime('%Y-%m-%d')}"
+        try:
+            usage_data = _get_billing_data(usage_url,key)
+            usage_data_today = _get_billing_data(usage_url_today,key)
+        except Exception as e:
+            print(f"获取API使用情况失败:" + str(e))
+            return "<font size=\"1\">**获取API使用情况失败**</font>"
+        rounded_usage = "{:.2f}".format(usage_data["total_usage"] / 100)
+        rounded_usage_today = "{:.2f}".format(usage_data_today["total_usage"] / 100)
+        return f"\n\u3000本月使用额度: \u3000 ${ rounded_usage} 美刀\n\u3000今日使用额度: \u3000 ${rounded_usage_today} 美刀"
+    except Exception as e:
+        print(f"获取API使用情况失败:" + str(e))
+        return "获取API使用情况失败"
+def _get_billing_data(billing_url, key):
+    response = requests.get(
+                        billing_url,
+                        headers={
+                                "Content-Type": "application/json",
+                                "Authorization": f"Bearer {key}",
+                                },
+                        timeout=30,
+                        )
+    if response.status_code == 200:
+        data = response.json()
+        return data
+    else:
+        raise Exception(
+            f"API request failed with status code {response.status_code}: {response.text}"
+        )
 
 
 # 计算消息使用的tokens数量
