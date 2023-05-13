@@ -1372,18 +1372,24 @@ def checkBalance(key):
         usage_url = f"{'https://api.openai.com/dashboard/billing/usage'}?start_date={first_day_of_month}&end_date={last_day_of_month}"
         next_day = curr_time + datetime.timedelta(days=1)
         usage_url_today = f"{'https://api.openai.com/dashboard/billing/usage'}?start_date={curr_time.strftime('%Y-%m-%d')}&end_date={next_day.strftime('%Y-%m-%d')}"
+        subscribtion_url = "https://api.openai.com/dashboard/billing/subscription"
         try:
             usage_data = _get_billing_data(usage_url,key)
             usage_data_today = _get_billing_data(usage_url_today,key)
+            subscription_data = _get_billing_data(subscribtion_url, key)
         except Exception as e:
             print(f"获取API使用情况失败:" + str(e))
             return "<font size=\"1\">**获取API使用情况失败**</font>"
         rounded_usage = "{:.2f}".format(usage_data["total_usage"] / 100)
         rounded_usage_today = "{:.2f}".format(usage_data_today["total_usage"] / 100)
-        return f"\n\u3000本月使用额度: \u3000 ${ rounded_usage} 美刀\n\u3000今日使用额度: \u3000 ${rounded_usage_today} 美刀"
+        rounded_subscription = "{:.2f}".format(subscription_data["hard_limit_usd"])
+
+        return f"\n\u3000总订阅额度: \u3000 ${rounded_subscription} 美刀\n\u3000本月使用额度: \u3000 ${rounded_usage} 美刀\n\u3000今日使用额度: \u3000 ${rounded_usage_today} 美刀"
     except Exception as e:
         print(f"获取API使用情况失败:" + str(e))
         return "获取API使用情况失败"
+
+
 def _get_billing_data(billing_url, key):
     response = requests.get(
                         billing_url,
@@ -1393,6 +1399,23 @@ def _get_billing_data(billing_url, key):
                                 },
                         timeout=30,
                         )
+    if response.status_code == 200:
+        data = response.json()
+        return data
+    else:
+        raise Exception(
+            f"API request failed with status code {response.status_code}: {response.text}"
+        )
+
+def _get_subscription(billing_url,key):
+    response = requests.get(
+        billing_url,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {key}",
+        },
+        timeout=30,
+    )
     if response.status_code == 200:
         data = response.json()
         return data
