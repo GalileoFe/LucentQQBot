@@ -1,3 +1,4 @@
+import copy
 import json
 import os
 import traceback
@@ -257,6 +258,15 @@ do_return = config_data["QBot"]["do_return"]
 # 将config.json中的general_prefix（通用前置）传入
 general_prefix = config_data["QBot"]["general_prefix"]
 
+# 如果stream值不存在则赋值为False
+if not config_data['qq_bot'].get('stream'):
+    config_data['qq_bot']['stream'] = False
+stream_enable = config_data['qq_bot']['stream']
+# 全局变量, 在使用流式传输发送分段文本后添加进去的值
+# 值为[sessionid][消息id].value = 发送时间戳
+# 时间在默认超时90秒或在接受并发送整条gpt回复后遍历撤回
+msgIDlist = {}
+
 #语音回复
 config_data_send_voice = False
     
@@ -377,8 +387,14 @@ def get_message():
             else:
                 return "错误：没有足够权限来执行此操作."
         else:
-            msg_text = chat(message, 'P' + str(uid))  # 将消息转发给ChatGPT处理
-            send_private_message(uid, msg_text, config_data_send_voice)  # 将消息返回的内容发送给用户
+            msg_text = chat(message, 'P' + str(uid), 0, uid)  # 将消息转发给ChatGPT处理
+            send_private_message(uid, msg_text, config_data_send_voice) # 将消息返回的内容发送给用户
+            # 如果有需要撤回的历史消息, 则遍历历史消息字典, 并以key值(消息ID)撤回, value为时间戳
+            # 如果需要key和value则需要加上.items(), 不加默认只返回key值
+            if msgIDlist.get('P' + str(uid)):
+                for msgID in msgIDlist.get('P' + str(uid)):
+                    recall_message(msgID)
+                msgIDlist.get('P' + str(uid)).clear()
 
     if request.get_json().get('message_type') == 'group':  # 如果是群消息
         gid = request.get_json().get('group_id')  # 群号
@@ -478,11 +494,20 @@ def get_message():
                         if not str(gid) in config_group_data():
                             update_config_group_json(str(gid), "", 0)
                         if config_group_data()[str(gid)]["group_mode"] != 0:
-                            msg_text = chat(message, 'G' + str(gid))  # 将消息转发给ChatGPT处理（群聊共享对话）
+                            msg_text = chat(message, 'G' + str(gid), gid, uid)  # 将消息转发给ChatGPT处理（群聊共享对话）
+                            sessionid = 'G' + str(gid)
                         else:
-                            msg_text = chat(message, 'G' + str(uid))  # 将消息转发给ChatGPT处理（个人独立对话）
+                            msg_text = chat(message, 'G' + str(uid), gid, uid)  # 将消息转发给ChatGPT处理（个人独立对话）
+                            sessionid = 'G' + str(uid)
                         at = True
-                    send_group_message(gid, msg_text, uid, config_data_send_voice, message_id, at)  # 将消息转发到群里 
+                    send_group_message(gid, msg_text, uid, config_data_send_voice, message_id, at)  # 将消息转发到群里
+                    # 如果有需要撤回的历史消息, 则遍历历史消息字典, 并以key值(消息ID)撤回, value为时间戳
+                    # 如果需要key和value则需要加上.items(), 不加默认只返回key值
+                    if msgIDlist.get(sessionid):
+                        for msgID in msgIDlist.get(sessionid):
+                            recall_message(msgID)
+                        msgIDlist.get(sessionid).clear()
+
     if request.get_json().get('post_type') == 'notice':  # 收到请求消息
         sub_type = request.get_json().get('sub_type')
         target_id = request.get_json().get('target_id')
@@ -499,6 +524,9 @@ def get_message():
                 send_private_message(uid, msg_text, config_data_send_voice)
             else:
                 send_group_message(gid, msg_text, uid, config_data_send_voice, message_id, False)
+
+            send_group_message(gid, msg_text, uid, config_data_send_voice, message_id)  # 将消息转发到群里
+
     if request.get_json().get('post_type') == 'request':  # 收到请求消息
         print("收到请求消息")
         request_type = request.get_json().get('request_type')  # group
@@ -583,7 +611,7 @@ def reset_chat():
 
 
 # 与ChatGPT交互的方法
-def chat(msg, sessionid):
+def chat(msg, sessionid, *args):
     global config_data
     global config_data_presets
     global config_data_send_voice
@@ -655,7 +683,7 @@ def chat(msg, sessionid):
             elif session['character'] >= 0:
                 if session['claude']:
                         slack_sessions.pop(sessionid, None)
-                        send_message_to_channel(message_text=data_presets_r('presets\\', data_presets_name[session['character']]),session_id=sessionid)
+                        messa = send_message_to_channel(message_text=data_presets_r('presets\\', data_presets_name[session['character']]),session_id=sessionid)
                 else:
                     session['msg'][0] = {"role": "system", "content": data_presets_r('presets\\', data_presets_name[session['character']])}
             if session['claude'] and do_return:
@@ -1126,7 +1154,6 @@ def chat(msg, sessionid):
             message_edited = msg
         # 设置本次对话内容
         if request.get_json().get('message_type') == 'group':
-            print(session.get('character'))
             if config_group_data()[str(gid)]["group_mode"] != 0: # 判断是否群聊
                 if session['character'] < 0 and config_group_data()[str(gid)]["presets"] in data_presets:
                     session['msg'] = [
@@ -1220,10 +1247,10 @@ def chat(msg, sessionid):
         if session['claude']:
             message = send_message_to_channel(message_text=message_edited,session_id=sessionid)
         else:
-            message = chat_with_gpt(session['msg'])
+            message = chat_with_gpt(session['msg'], *args, sessionid)
         # 记录上下文
         if not session['claude']:
-            session['msg'].append({"role": "assistant", "content": message})
+            session['msg'].append({"role": "assistant", "content": message.removesuffix(config_data['qq_bot'].get('page_finish_symbol'))})
         print("会话ID: " + str(sessionid))
         print("ChatGPT返回内容: ")
         print(html.unescape(message))
@@ -1256,7 +1283,7 @@ def get_chat_session(sessionid):
     return sessions[sessionid]
 
 
-def chat_with_gpt(messages):
+def chat_with_gpt(messages, *args):
     global current_key_index
     max_length = len(config_data['openai']['api_key']) - 1
     try:
@@ -1267,16 +1294,107 @@ def chat_with_gpt(messages):
                 current_key_index = 0
                 return "全部Key均已达到速率限制,请等待一分钟后再尝试"
             openai.api_key = config_data['openai']['api_key'][current_key_index]
-        
-        resp = openai.ChatCompletion.create(
-            model=config_data['chatgpt']['model'],
-            messages=messages,
-            temperature=config_data['chatgpt']['temperature'],
-            top_p=config_data['chatgpt']['top_p'],
-            presence_penalty=config_data['chatgpt']['presence_penalty'],
-            frequency_penalty=config_data['chatgpt']['frequency_penalty']
-            )
-        resp = resp['choices'][0]['message']['content']
+            # 如果stream开启则开始使用stream方法
+            if config_data['qq_bot'].get('stream') if config_data['qq_bot'].get('stream') else stream_enable:
+                print("开始stream模式")
+                bot_info = get_bot_info()
+                nick_name = bot_info['nickname']
+                bot_qq = bot_info['user_id']
+                import time
+                stream_resp = chat_completion(stream=True, messages=messages)
+                # 定义收集chunk的变量
+                # full_reply_content 用于返回全部文本
+                # text_chunk 把回复分块后的chunk, 默认为->超过75字符后遇到 \n 换行符号或句号
+                # chunk_collection 用于比对数据, 捕捉代码块
+                full_reply_content = ""
+                text_chunk = ""
+                chunk_collection = []
+                # 提前判断本session发送的需要撤回的text_chunk列表是否存在
+                # 不赋值的话会报错, >>已经再下方使用 if 避免了报错, 但是需要赋空值才能放入数据
+                if not msgIDlist.get(args[2]):
+                    msgIDlist[args[2]] = {}
+                qq_response = None
+
+                typing_status = config_data['qq_bot'].get('typing_status') if config_data['qq_bot'].get('typing_status') else " ✏️ 正在输入... ◕‿◕"
+                # 页码符号只会在私聊中发送, 并且可关闭, 默认为开启
+                page_suffix_enable = config_data['qq_bot'].get('page_suffix') if config_data['qq_bot'].get(
+                    'page_suffix') else False
+                # 页码符号
+                page_stream_symbol = config_data['qq_bot'].get('page_stream_symbol') if config_data['qq_bot'].get('page_stream_symbol') else "..."  # 💬
+                page_finish_symbol = config_data['qq_bot'].get('page_finish_symbol') if config_data['qq_bot'].get('page_finish_symbol') else ""  # "🔚"
+                # 等待时间, 默认为20秒
+                # 每次触发返回的chunk字符量, 默认为75个字符
+                # 任一条件满足就会返回
+                time_cap = config_data['qq_bot'].get('time_cap') if config_data['qq_bot'].get('time_cap') else 20
+                chunk_chars_limit = config_data['qq_bot'].get('chunk_chars') if config_data['qq_bot'].get('chunk_chars') else 150
+                # 触发符号, 默认为换行符号等
+                trigger_symbol = config_data['qq_bot'].get('trigger_symbol') if config_data['qq_bot'].get('trigger_symbol') else ['\n\n', '\n', '.', '。']
+
+                code_symbol = "```"
+                # 开始流式传输...
+                # chunk为每次gpt返回的一个单个类似token的东西
+                # chunk不一定为1个字符
+                start_time = time.time()
+                for chunk in stream_resp:
+                    # 复用当前chunk数据, 所有提前赋一下值让代码好读
+                    chunk_content = chunk['choices'][0]['delta'].get('content', '')
+                    # 使用本次chunk更新收集chunk的变量
+                    chunk_collection.append(chunk)
+                    text_chunk += ''.join(chunk_content)
+                    full_reply_content += ''.join(chunk_content)
+                    # 根据配置文件中的 "qq_bot" -> "chunk_chars" 参数，
+                    # 将响应分成较小的块。这个参数指定用于将响应拆分成块的字符。
+                    # 默认为75, 可更改.
+                    code_paired = True if full_reply_content.count(code_symbol) % 2 == 0 else False
+                    form_found = True if '|' in full_reply_content and '|\n\n' not in full_reply_content else False
+                    if (len(text_chunk) >= chunk_chars_limit or (time.time() - start_time >= time_cap)) and text_chunk[-1] in trigger_symbol and code_paired and not form_found:
+                        finish_reason = chunk["choices"][0]["finish_reason"]
+                        if finish_reason == "stop":
+                            if page_suffix_enable and args[0] == 0 and len(full_reply_content) > chunk_chars_limit * 2:
+                                full_reply_content += f"{page_finish_symbol}"
+                            resp = full_reply_content
+                            set_group_card(args[0], qq_no, nick_name)
+                            print("传输完成, stream模式结束")
+                            return resp
+                        # 去掉行尾空格, 如果有的话,格式美观 :)
+                        text_chunk = text_chunk[:-2] + text_chunk[-2:].replace('\n', '')
+                        if args[0] != 0 and config_group_data()[str(args[0])]["group_mode"] >= 1:
+                            # 首先判断是否为群聊模式, 在套娃式调用到本方法的时候, 会传递uid和gid, 私聊模式传递的gid为0
+                            # 如果有群id并且群id所在模式为群聊共享模式, 则执行, 否则不发送消息
+                            # args[0],[1],[2], 分别是 gid, uid, sessionid, 这也是不改动源代码我想到比较好的方法=
+                            set_group_card(args[0], qq_no, nick_name + typing_status)
+                            qq_response = send_group_message(args[0],
+                                                             text_chunk,
+                                                             args[1] if len(msgIDlist.get(args[2]) if msgIDlist.get(args[2]) else {}) == 0 else "",
+                                                             config_data_send_voice, 0)
+                            print("太久了! 发送分段消息")
+                        elif args[0] == 0:
+                            text_chunk += f"{page_stream_symbol}"
+                            qq_response = send_private_message(args[1], text_chunk, config_data_send_voice)
+                        # 如果有消息发送并且成功了, 将消息的id, 发送时间填入msgIDlist中对应的sessionid的字典中
+                        if qq_response and qq_response.get('data').get('message_id'):
+                            msgIDlist[args[2]].update({qq_response.get('data').get('message_id'): time.time()})
+                        text_chunk = ""
+                        start_time = time.time()
+                        # 结束分块判断...
+                    # 如果本session中有历史发送的消息, 则循环查看他们是否超过90秒, 超出则撤回
+                    # 不使用get语句的话会报错, 先判断再执行
+                    if msgIDlist.get(args[2]):
+                        temp_msg_list = copy.deepcopy(msgIDlist.get(args[2]))
+                        for msgID, time_stamp in temp_msg_list.items():
+                            if time.time() - time_stamp > 90:
+                                recall_message(msgID)
+                                if msgID in msgIDlist.get(args[2]):
+                                    del msgIDlist[args[2]][msgID]
+                # 结束流式传输
+                if page_suffix_enable and args[0] == 0 and len(full_reply_content) > chunk_chars_limit * 2:
+                    full_reply_content += f"{page_finish_symbol}"
+                resp = full_reply_content
+                set_group_card(args[0], qq_no, nick_name)
+                print("stream模式结束")
+            else:
+                resp = chat_completion(stream=False, messages=messages)
+                resp = resp['choices'][0]['message']['content']
     except openai.OpenAIError as e:
         if str(e).__contains__("Rate limit reached for default-gpt-3.5-turbo") and current_key_index <= max_length:
             # 切换key
@@ -1297,6 +1415,57 @@ def chat_with_gpt(messages):
             resp = str(e)
     return resp
 
+
+def recall_message(message_id) -> None:
+    """
+    撤回函数, 会在控制台打印出状态
+    Args:
+        message_id: 要撤回的消息id
+    """
+    print("recall message. id: {} status:{}".format(message_id, requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/delete_msg",
+                                                                             params={'message_id': message_id})))
+
+def get_bot_info():
+    """
+    获取Bot的昵称
+    """
+    data = requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/get_login_info").json()
+    if data['status'] == 'ok':
+        return data['data']
+    return {'nickname': '','user_id': qq_no}
+
+def set_group_card(group_id, user_id, nick_name) -> None:
+    """
+    设置群名片
+    Args:
+        group_id: 群号
+        user_id: 用户qq号
+        nick_name: 群名片
+    """
+    params = {'group_id': group_id, 'user_id': user_id, 'card': nick_name}
+    requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/set_group_card", params=params)
+
+
+def chat_completion(stream: False, messages: ""):
+    """
+    为代码复用性而单独写的一个函数
+    Args:
+        stream:bool: 是否为流式传输
+        messages:str: 用户输入文本
+
+    Returns:
+        resp:流式传输的openai Generator对象
+    """
+    resp = openai.ChatCompletion.create(
+        model=config_data['chatgpt']['model'],
+        messages=messages,
+        temperature=config_data['chatgpt']['temperature'],
+        top_p=config_data['chatgpt']['top_p'],
+        presence_penalty=config_data['chatgpt']['presence_penalty'],
+        frequency_penalty=config_data['chatgpt']['frequency_penalty'],
+        stream=stream
+    )
+    return resp
 
 # 生成图片
 def genImg(message):
@@ -1322,6 +1491,7 @@ def send_private_message(uid, message, send_voice):
                             params={'user_id': int(uid), 'message': message}).json()
         if res["status"] == "ok":
             print("私聊消息发送成功")
+            return res
         else:
             print(res)
             print("私聊消息发送失败，错误信息：" + str(res['wording']))
@@ -1360,16 +1530,18 @@ def send_group_message(gid, message, uid, send_voice, message_id, at=True):
                                 params={'group_id': int(gid), 'message': pic_message}).json()
             if res["status"] == "ok":
                 print("群图片发送成功")
+                return res
             else:
                 print("群图片发送失败，错误信息：" + str(res['wording']))
         else:
             message_message = message
-            if at:
+            if at and uid:
                 message_message = str('[CQ:at,qq=%s]\n' % uid) + message_message  # @发言人
             res = requests.post(url=config_data['qq_bot']['cqhttp_url'] + "/send_group_msg",
                                 params={'group_id': int(gid), 'message': message_message}).json()
             if res["status"] == "ok":
                 print("群消息发送成功")
+                return res
             else:
                 print("群消息发送失败，错误信息：" + str(res['wording']))
         if send_voice:  # 如果开启了语音发送
@@ -1381,6 +1553,7 @@ def send_group_message(gid, message, uid, send_voice, message_id, at=True):
                                 params={'group_id': int(gid), 'message': voice_message}).json()
             if res["status"] == "ok":
                 print("群语音发送成功")
+                return res
             else:
                 print("群语音发送失败，错误信息：" + str(res['wording']))
     except Exception as error:
