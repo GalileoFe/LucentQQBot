@@ -1395,6 +1395,7 @@ def chat_with_gpt(messages, *args):
                 nick_name = bot_info['nickname']
                 bot_qq = bot_info['user_id']
                 import time
+                # 通过这个来收集回复
                 stream_resp = chat_completion(stream=True, messages=messages)
                 # 定义收集chunk的变量
                 # full_reply_content 用于返回全部文本
@@ -1567,6 +1568,7 @@ def chat_completion(stream: False, messages: "list[str]"):
     Returns:
         resp:流式传输的openai Generator对象
     """
+
     resp = openai.ChatCompletion.create(
         model=config_data['chatgpt']['model'],
         messages=messages,
@@ -1854,6 +1856,19 @@ def check_reposoitories():
             'repositories', 'midjourney_api', 'app.py')])
     except:
         print("启动midjourney-api失败，請刪除文件重新安裝，但其他服務可以使用")
+
+
+def midjourney_api_request(prompt):
+    try:
+        payload = {
+            "prompt": f'"{prompt}"'
+        }
+        url = "http://localhost:5000/api/send_and_receive"
+        response = requests.post(url, data=json.dumps(payload), headers={
+                                 'Content-Type': 'application/json'})
+        return response.json()
+    except:
+        pass
 
 
 if __name__ == '__main__':
