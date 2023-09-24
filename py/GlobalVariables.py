@@ -1,0 +1,2 @@
+global respCache
+respCache = {}

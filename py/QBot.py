@@ -23,6 +23,12 @@ from Slack_Bot import send_message_to_channel
 from Slack_Bot import sessions as slack_sessions
 from Slack_Bot import switch_message_mode as slack_switch_message_mode
 from Slack_Bot import get_message_mode as slack_get_message_mode
+from MidJ import submit_imagine_mission
+from GlobalVariables import respCache
+
+# 读取functions.json赋值给functions
+with open("functions.json", "r", encoding='utf-8') as jsonfile:
+    functions = json.load(jsonfile)
 
 with open("config.json", "r", encoding='utf-8') as jsonfile:
     config_data = json.load(jsonfile)
@@ -1374,6 +1380,8 @@ def get_chat_session(sessionid):
         sessions[sessionid] = config
     return sessions[sessionid]
 
+# 核心对话函数
+
 
 def chat_with_gpt(messages, *args):
     global current_key_index
@@ -1565,15 +1573,19 @@ def chat_completion(stream: False, messages: str = ""):
     Returns:
         resp:流式传输的openai Generator对象
     """
+    global respCache
     resp = openai.ChatCompletion.create(
         model=config_data['chatgpt']['model'],
         messages=messages,
+        functions=functions,
+        function_call="auto",
         temperature=config_data['chatgpt']['temperature'],
         top_p=config_data['chatgpt']['top_p'],
         presence_penalty=config_data['chatgpt']['presence_penalty'],
         frequency_penalty=config_data['chatgpt']['frequency_penalty'],
         stream=stream
     )
+    respCache = resp["choices"][0]["message"]
     return resp
 
 # 生成图片
