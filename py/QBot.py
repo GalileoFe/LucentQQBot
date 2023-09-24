@@ -24,6 +24,7 @@ from Slack_Bot import sessions as slack_sessions
 from Slack_Bot import switch_message_mode as slack_switch_message_mode
 from Slack_Bot import get_message_mode as slack_get_message_mode
 import subprocess
+import shutil
 
 with open("config.json", "r", encoding='utf-8') as jsonfile:
     config_data = json.load(jsonfile)
@@ -1845,9 +1846,16 @@ def check_reposoitories():
             ['git', 'clone', 'https://github.com/CelestialRipple/Midjourney-Web-API'],
             cwd='reposoitories'
         )
+    shutil.copyfile('config_midjourney.json',  os.path.join(
+        'repositories', 'midjourney_api', 'sender_params.json'))
+    try:
+        subprocess.Popen(['python', os.path.join(
+            'repositories', 'midjourney_api', 'app.py')])
+    except:
+        print("启动midjourney-api失败，請刪除文件重新安裝，但其他服務可以使用")
 
 
 if __name__ == '__main__':
+    check_reposoitories()
     config_port = config_data["qq_bot"]["cqhttp_post_port"]
     server.run(port=config_port, host='0.0.0.0', use_reloader=False)
-    check_reposoitories
