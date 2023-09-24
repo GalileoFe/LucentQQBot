@@ -1555,7 +1555,7 @@ def set_group_card(group_id, user_id, nick_name) -> None:
         url=config_data['qq_bot']['cqhttp_url'] + "/set_group_card", params=params)
 
 
-def chat_completion(stream: False, messages: str):
+def chat_completion(stream: False, messages: str = ""):
     """
     为代码复用性而单独写的一个函数
     Args:
