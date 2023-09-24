@@ -376,8 +376,10 @@ def get_message():
     global data_presets2
     global config_group_data
     global awaken
+    global midjourney_image_req_uid
     if request.get_json().get('message_type') == 'private':  # 如果是私聊信息
         uid = request.get_json().get('sender').get('user_id')  # 获取信息发送者的 QQ号码
+        midjourney_image_req_uid = uid
         message = request.get_json().get('raw_message')  # 获取原始信息
         sender = request.get_json().get('sender')  # 消息发送者的资料
         print("收到私聊消息：")
@@ -388,8 +390,11 @@ def get_message():
             msg_text = chat(message, 'P' + str(uid))  # 将消息转发给ChatGPT处理
             # 将ChatGPT的描述转换为图画
             print('开始生成图像')
-            pic_path = get_openai_image(msg_text)
-            send_private_message_image(uid, pic_path, msg_text)
+            pic_resp = get_openai_image(msg_text)
+            send_private_message(uid, pic_resp, config_data_send_voice)
+
+            # pic_path = get_openai_image(msg_text)
+            # send_private_message_image(uid, pic_path, msg_text)
         elif message.strip().startswith('直接生成图像'):
             message = str(message).replace('直接生成图像', '')
             print('开始直接生成图像')
@@ -1740,29 +1745,22 @@ def get_openai_image(messages: str):
         function_response = function_to_call(
             prompt=function_args.get("prompt")
         )
-        messages.append(response_message)
-        messages.append(
-            {
-                "role": "function",
-                "name": function_name,
-                "content": function_response,
-            }
-        )  # extend conversation with function response
-        second_response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo-0613",
-            messages=messages,
-        )  # get a new response from GPT where it can see the function response
-        return second_response
+        print(function_response["description"])
+        return function_response["description"]
 
 
 # 增加一个接口用来回传Mid生成的图片
 @server.route('/get_image', methods=['POST'])
 def get_midjourney_image():
+    global midjourney_image_url
+    global midjourney_image_req_uid
     data = request.get_json()
     image_url = data['imageUrl']
     print('图像已生成')
     print(image_url)
-    return image_url
+    midjourney_image_url = image_url
+    send_private_message_image(
+        midjourney_image_req_uid, midjourney_image_url, '')
 
 
 '''

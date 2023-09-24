@@ -6,7 +6,7 @@
                 "properties": {
                     "prompt": {
                         "type": "string",
-                        "description": "prompts transfer to midjourey bot to imagine a picture, e.g. Cat and Dog"
+                        "description": "natural English prompts transfered to midjourey bot to imagine a picture, e.g. Cat and Dog"
                     }
                 },
                 "required": [
