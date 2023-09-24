@@ -1571,7 +1571,7 @@ def chat_completion(stream: False, messages: str = ""):
         messages:str: 用户输入文本
 
     Returns:
-        resp:流式传输的openai Generator对象
+        resp:流式传输的openai Generator对象p
     """
     global respCache
     resp = openai.ChatCompletion.create(
@@ -1585,7 +1585,6 @@ def chat_completion(stream: False, messages: str = ""):
         frequency_penalty=config_data['chatgpt']['frequency_penalty'],
         stream=stream
     )
-    respCache = resp["choices"][0]["message"]
     return resp
 
 # 生成图片
@@ -1727,6 +1726,36 @@ def set_group_invite_request(flag, approve):
 
 
 # openai生成图片
+def get_openai_image(messages: str):
+    response_message = chat_completion(stream=False, messages=messages)[
+        "choices"][0]["message"]
+    if response_message.get("function_call"):
+        available_functions = {
+            "submit_imagine_mission": submit_imagine_mission,
+        }
+        function_name = respCache["function_call"]["name"]
+        function_to_call = available_functions[function_name]
+        function_args = json.loads(
+            respCache["function_call"]["arguments"])
+        function_response = function_to_call(
+            prompt=function_args.get("prompt")
+        )
+        messages.append(response_message)
+        messages.append(
+            {
+                "role": "function",
+                "name": function_name,
+                "content": function_response,
+            }
+        )  # extend conversation with function response
+        second_response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo-0613",
+            messages=messages,
+        )  # get a new response from GPT where it can see the function response
+        return second_response
+
+
+'''
 def get_openai_image(des):
     openai.api_key = config_data['openai']['api_key'][current_key_index]
     response = openai.Image.create(
@@ -1738,6 +1767,8 @@ def get_openai_image(des):
     print('图像已生成')
     print(image_url)
     return image_url
+
+'''
 
 
 # 查询账户余额
