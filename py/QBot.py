@@ -24,6 +24,8 @@ from Slack_Bot import sessions as slack_sessions
 from Slack_Bot import switch_message_mode as slack_switch_message_mode
 from Slack_Bot import get_message_mode as slack_get_message_mode
 import subprocess
+import atexit
+import repositories.midjourney_api.app as midjourney_api
 
 with open("config.json", "r", encoding='utf-8') as jsonfile:
     config_data = json.load(jsonfile)
@@ -1840,14 +1842,35 @@ def check_strings_exist(str_list, target_str):
 
 
 def check_reposoitories():
-    if not os.path.exists(os.path.join('reposoitories', 'midjourney-api')):
+    if not os.path.exists(os.path.join('reposoitories', 'midjourney_api')):
         subprocess.run(
-            ['git', 'clone', 'https://github.com/CelestialRipple/Midjourney-Web-API'],
+            ['git', 'clone', 'https://github.com/CelestialRipple/Midjourney-Web-API',
+                'midjourney-api'],
             cwd='reposoitories'
         )
 
+# 导入需要的api
+
+
+@midjourney_api.route('/api/send_and_receive', methods=['POST'])
+def send_and_receive():
+    midjourney_api.send_and_receive()
+
+
+@midjourney_api.route('/images/<filename>', methods=['GET'])
+def serve_image(filename):
+    midjourney_api.serve_image(filename)
+
+
+@midjourney_api.route('/upscale', methods=['GET'])
+def upscale():
+    midjourney_api.upscale()
+
 
 if __name__ == '__main__':
+
     config_port = config_data["qq_bot"]["cqhttp_post_port"]
     server.run(port=config_port, host='0.0.0.0', use_reloader=False)
     check_reposoitories
+    midjourney_api.run(port=config_port + 1,
+                       host='0.0.0.0', use_reloader=False)
