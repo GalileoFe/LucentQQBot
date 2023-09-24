@@ -2,13 +2,14 @@ import requests
 import json
 from GlobalVariables import respCache
 
-with open("../config.json", "r") as f:
-    config = json.load(f)
+with open("config.json", "r", encoding='utf-8') as jsonfile:
+    config_data = json.load(jsonfile)
 
-MidJourneyServerUrl = config["MidJourneyServerUrl"]["url"]
+MidJourneyServerUrl = config_data["MidJourneyServerUrl"]["url"]
+config_port = config_data["qq_bot"]["cqhttp_post_port"]
 
 
-def submit_imagine_mission(prompt: str, base64Array: list = [], notifyHook: str = "", state: str = ""):
+def submit_imagine_mission(prompt: str, base64Array: list = [], notifyHook: str = f"http://0.0.0.0:{config_port}/get_image", state: str = ""):
     """
     提交t2i任务
     Args:

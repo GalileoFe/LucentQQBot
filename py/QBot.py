@@ -1755,6 +1755,16 @@ def get_openai_image(messages: str):
         return second_response
 
 
+# 增加一个接口用来回传Mid生成的图片
+@server.route('/get_image', methods=['POST'])
+def get_midjourney_image():
+    data = request.get_json()
+    image_url = data['imageUrl']
+    print('图像已生成')
+    print(image_url)
+    return image_url
+
+
 '''
 def get_openai_image(des):
     openai.api_key = config_data['openai']['api_key'][current_key_index]
