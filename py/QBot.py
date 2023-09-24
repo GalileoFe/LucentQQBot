@@ -1850,3 +1850,4 @@ def check_reposoitories():
 if __name__ == '__main__':
     config_port = config_data["qq_bot"]["cqhttp_post_port"]
     server.run(port=config_port, host='0.0.0.0', use_reloader=False)
+    check_reposoitories
