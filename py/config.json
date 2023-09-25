@@ -66,6 +66,6 @@
         "voice_mode": 0
     },
     "MidJourneyServerUrl": {
-        "url": "http://localhost:8080"
+        "url": "https://mijnoria.zeabur.app"
     }
 }
