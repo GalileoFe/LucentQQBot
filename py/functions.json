@@ -1,16 +1,18 @@
-        {
-            "name": "submit_imagine_mission",
-            "description": "Submit a mission to the Imagine API",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "prompt": {
-                        "type": "string",
-                        "description": "natural English prompts transfered to midjourey bot to imagine a picture, e.g. Cat and Dog"
-                    }
-                },
-                "required": [
-                    "prompt"
-                ]
-            }
+[
+    {
+        "name": "submit_imagine_mission",
+        "description": "Submit a mission to the Imagine API",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "natural English prompts transfered to midjourey bot to imagine a picture, e.g. Cat and Dog"
+                }
+            },
+            "required": [
+                "prompt"
+            ]
         }
+    }
+]
