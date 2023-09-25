@@ -1576,9 +1576,8 @@ def chat_completion(stream: False, messages: str = ""):
         messages:str: 用户输入文本
 
     Returns:
-        resp:流式传输的openai Generator对象p
+        resp:流式传输的openai Generator对象
     """
-    global respCache
     resp = openai.ChatCompletion.create(
         model=config_data['chatgpt']['model'],
         messages=messages,
@@ -1590,7 +1589,33 @@ def chat_completion(stream: False, messages: str = ""):
         frequency_penalty=config_data['chatgpt']['frequency_penalty'],
         stream=stream
     )
-    return resp
+    response_message = resp[
+        "choices"][0]["message"]
+    if response_message.get("function_call"):
+        available_functions = {
+            "submit_imagine_mission": submit_imagine_mission,
+        }
+        function_name = response_message["function_call"]["name"]
+        function_to_call = available_functions[function_name]
+        function_args = json.loads(
+            response_message["function_call"]["arguments"])
+        function_response = function_to_call(
+            prompt=function_args.get("prompt")
+        )
+        print(function_response)
+        messages.append(function_response["description"])
+        messages.append({
+            "role":"function",
+            "name": function_name,
+            "content": function_response["description"]
+        })
+        second_response = openai.ChatCompletion.create(
+            model="gpt-3.5-turbo-0613",
+            messages=messages,
+        ) 
+        return second_response
+    else:
+        return resp
 
 # 生成图片
 
@@ -1734,6 +1759,8 @@ def set_group_invite_request(flag, approve):
 def get_openai_image(messages: str):
     response_message = chat_completion(stream=False, messages=messages)[
         "choices"][0]["message"]
+    return response_message
+'''
     if response_message.get("function_call"):
         available_functions = {
             "submit_imagine_mission": submit_imagine_mission,
@@ -1747,6 +1774,7 @@ def get_openai_image(messages: str):
         )
         print(function_response["description"])
         return function_response["description"]
+'''
 
 
 # 增加一个接口用来回传Mid生成的图片

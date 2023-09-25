@@ -9,7 +9,11 @@ MidJourneyServerUrl = config_data["MidJourneyServerUrl"]["url"]
 config_port = config_data["qq_bot"]["cqhttp_post_port"]
 
 
-def submit_imagine_mission(prompt: str, base64Array: list = [], notifyHook: str = f"http://0.0.0.0:{config_port}/get_image", state: str = ""):
+def submit_imagine_mission(
+    prompt: str, 
+    base64Array: list = [], 
+    notifyHook: str = f"http://0.0.0.0:{config_port}/get_image", 
+    state: str = ""):
     """
     提交t2i任务
     Args:

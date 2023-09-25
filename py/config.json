@@ -59,7 +59,8 @@
             "为什么"
         ],
         "allow_session_read": 1,
-        "do_return": true
+        "do_return": true,
+        "general_prefix": ""
     },
     "VITS": {
         "voice_enable": 0,
