@@ -25,7 +25,7 @@
         "voice": "zh_ja_mixture_cleaners",
         "auto_confirm": false,
         "admin_qq": "机器人主人（也就是你）的QQ号",
-        "stream": true,
+        "stream": false,
         "typing_status": " ✏️ 正在输入... ◕‿◕",
         "trigger_symbol": [
             "\n\n",

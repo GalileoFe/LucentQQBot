@@ -1605,14 +1605,14 @@ def chat_completion(stream: False, messages: str = ""):
         print(function_response)
         messages.append(function_response["description"])
         messages.append({
-            "role":"function",
+            "role": "function",
             "name": function_name,
             "content": function_response["description"]
         })
         second_response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo-0613",
             messages=messages,
-        ) 
+        )
         return second_response
     else:
         return resp
@@ -1760,6 +1760,8 @@ def get_openai_image(messages: str):
     response_message = chat_completion(stream=False, messages=messages)[
         "choices"][0]["message"]
     return response_message
+
+
 '''
     if response_message.get("function_call"):
         available_functions = {
