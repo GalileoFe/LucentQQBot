@@ -1,42 +1,37 @@
 {
-    "openai": {
-        "api_key": [
-            ""
-        ],
-        "img_size": "1024x1024",
-        "endpoint": "https://gpt.lucent.blog/v1"
-    },
+	"openai": {
+		"api_key": ["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"],
+		"img_size": "1024x1024",
+		"endpoint": "https://gpt.lucent.blog/v1"
+	},
     "chatgpt": {
-        "model": "gpt-3.5-turbo",
-        "temperature": 0.75,
-        "max_tokens": 3000,
+        "model": "gpt-4",
+        "temperature": 0.9,
+        "max_tokens": 7700,
         "top_p": 1,
         "echo": false,
         "presence_penalty": 0.25,
         "frequency_penalty": 0.45
     },
     "qq_bot": {
-        "qq_no": "机器人的QQ号",
+        "qq_no": "242662241",
         "cqhttp_url": "http://localhost:8602",
-        "cqhttp_post_port": 5557,
+		"cqhttp_post_port": 5557,
         "max_length": 5000,
         "image_path": "../QBot/data/images",
-        "voice_path": "",
-        "voice": "zh_ja_mixture_cleaners",
+		"voice_path": "",
+		"voice": "zh_ja_mixture_cleaners",
         "auto_confirm": false,
-        "admin_qq": "机器人主人（也就是你）的QQ号",
-        "stream": false,
-        "typing_status": " ✏️ 正在输入... ◕‿◕",
-        "trigger_symbol": [
-            "\n\n",
-            "\n"
-        ],
-        "page_suffix": true,
-        "page_stream_symbol": " ...",
-        "page_finish_symbol": "\n(完)",
-        "time_cap": 20,
-        "chunk_chars": 150,
-        "claude": false
+        "admin_qq": "3271368359",
+        "stream":false,
+        "typing_status":" 🐱 正在输入...",
+        "trigger_symbol":["\n\n", "\n"],
+        "page_suffix":true,
+        "page_stream_symbol":" 👉...",
+        "page_finish_symbol":"",
+        "time_cap":20,
+        "chunk_chars":150,
+        "claude":false
     },
     "text_to_image": {
         "font_size": 30,
@@ -45,27 +40,20 @@
         "offset_x": 50,
         "offset_y": 50
     },
-    "QBot": {
-        "default_preset": "Yuki",
-        "moderator_qq": [
-            "123456"
-        ],
-        "safe_mode": 0,
-        "safe_presets": [
-            "Yuki"
-        ],
-        "general_wakewords": [
-            "怎么",
-            "为什么"
-        ],
-        "allow_session_read": 1,
-        "do_return": true,
+	"QBot": {
+		"default_preset":"Yuki",
+		"moderator_qq": ["3271368359"],
+		"safe_mode": 0,
+		"safe_presets": ["Yuki"],
+		"general_wakewords": ["noria","怎么"],
+		"allow_session_read": 1,
+		"do_return": true,
         "general_prefix": ""
-    },
-    "VITS": {
-        "voice_enable": 0,
-        "voice_mode": 0
-    },
+	},
+	"VITS": {
+		"voice_enable": 0,
+		"voice_mode": 0
+	},
     "MidJourneyServerUrl": {
         "url": "https://mijnoria.zeabur.app"
     }

@@ -1352,8 +1352,9 @@ def chat(msg, sessionid, *args):
             message = chat_with_gpt(session['msg'], *args, sessionid)
         # 记录上下文
         if not session['claude']:
-            session['msg'].append({"role": "assistant", "content": message.removesuffix(
-                config_data['qq_bot'].get('page_finish_symbol'))})
+            if message is not None:
+                session['msg'].append({"role": "assistant", "content": message.removesuffix(
+                    config_data['qq_bot'].get('page_finish_symbol'))})
         print("会话ID: " + str(sessionid))
         print("ChatGPT返回内容: ")
         print(html.unescape(message))
@@ -1602,20 +1603,24 @@ def chat_completion(stream: False, messages: str = ""):
         function_response = function_to_call(
             prompt=function_args.get("prompt")
         )
+        resp["choices"][0]["message"]["content"] = f"任务已提交, 描述为{function_args},请耐心等候图片生成"
+        print(resp)
+        '''
         print(function_response)
         messages.append(function_response["description"])
         messages.append({
-            "role": "function",
+            "role":"function",
             "name": function_name,
             "content": function_response["description"]
         })
         second_response = openai.ChatCompletion.create(
             model="gpt-3.5-turbo-0613",
             messages=messages,
-        )
+        ) 
         return second_response
-    else:
-        return resp
+        '''
+        # resp["choices"][0]["message"] += (f"任务已提交, 描述为{function_args},请耐心等候图片生成")
+    return resp
 
 # 生成图片
 
@@ -1760,8 +1765,6 @@ def get_openai_image(messages: str):
     response_message = chat_completion(stream=False, messages=messages)[
         "choices"][0]["message"]
     return response_message
-
-
 '''
     if response_message.get("function_call"):
         available_functions = {

@@ -1,7 +1,7 @@
 [
     {
         "name": "submit_imagine_mission",
-        "description": "Submit a mission to the Imagine API",
+        "description": "画画任务，描绘图像的任务，使用提示词描绘图像的任务",
         "parameters": {
             "type": "object",
             "properties": {
