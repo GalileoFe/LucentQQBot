@@ -23,7 +23,7 @@
 		"voice": "zh_ja_mixture_cleaners",
         "auto_confirm": false,
         "admin_qq": "3271368359",
-        "stream":false,
+        "stream":true,
         "typing_status":" 🐱 正在输入...",
         "trigger_symbol":["\n\n", "\n"],
         "page_suffix":true,
@@ -55,6 +55,7 @@
 		"voice_mode": 0
 	},
     "MidJourneyServerUrl": {
-        "url": "https://mijnoria.zeabur.app"
+        "url": "https://mijnoria.zeabur.app",
+        "notifyurl": "http://110.42.231.15"
     }
 }

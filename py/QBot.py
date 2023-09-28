@@ -24,7 +24,6 @@ from Slack_Bot import sessions as slack_sessions
 from Slack_Bot import switch_message_mode as slack_switch_message_mode
 from Slack_Bot import get_message_mode as slack_get_message_mode
 from MidJ import submit_imagine_mission
-from GlobalVariables import respCache
 
 # 读取functions.json赋值给functions
 with open("functions.json", "r", encoding='utf-8') as jsonfile:
@@ -348,7 +347,7 @@ current_key_index = 0
 # openai.api_base = "https://chat-gpt.aurorax.cloud/v1"
 openai.api_base = config_data['openai']['endpoint']
 
-# 创建一个服务，把当前这个python文件当做一个服务
+# 创建多个服务，把当前这个python文件当做服务
 server = Flask(__name__)
 
 
@@ -1780,21 +1779,6 @@ def get_openai_image(messages: str):
         print(function_response["description"])
         return function_response["description"]
 '''
-
-
-# 增加一个接口用来回传Mid生成的图片
-@server.route('/get_image', methods=['POST'])
-def get_midjourney_image():
-    global midjourney_image_url
-    global midjourney_image_req_uid
-    data = request.get_json()
-    image_url = data['imageUrl']
-    print('图像已生成')
-    print(image_url)
-    midjourney_image_url = image_url
-    send_private_message_image(
-        midjourney_image_req_uid, midjourney_image_url, '')
-
 
 '''
 def get_openai_image(des):

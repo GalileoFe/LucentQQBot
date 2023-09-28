@@ -1,2 +1,2 @@
-global respCache
-respCache = {}
+import threading
+respCache = threading.Event()
