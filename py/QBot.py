@@ -1604,6 +1604,18 @@ def chat_completion(stream: False, messages: str = ""):
         )
         resp["choices"][0]["message"]["content"] = f"任务已提交, 描述为{function_args},请耐心等候图片生成"
         print(resp)
+        messages.append(response_message)
+        messages.append(
+            {
+            "imageUrl": function_response[0],
+            }
+        )
+        second_response = openai.ChatCompletion.create(
+            model=config_data['chatgpt']['model'],
+            messages=messages
+            )
+        return second_response
+    
         '''
         print(function_response)
         messages.append(function_response["description"])
@@ -1619,7 +1631,8 @@ def chat_completion(stream: False, messages: str = ""):
         return second_response
         '''
         # resp["choices"][0]["message"] += (f"任务已提交, 描述为{function_args},请耐心等候图片生成")
-    return resp
+    else:
+        return resp
 
 # 生成图片
 
