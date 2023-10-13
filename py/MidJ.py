@@ -1,7 +1,7 @@
 import requests
 import json
 from GlobalVariables import respCache
-import Flask
+from flask import request, Flask
 
 '''
 # 增加一个接口用来回传Mid生成的图片
@@ -27,6 +27,7 @@ config_port = config_data["qq_bot"]["cqhttp_post_port"] + 1
 
 MJAPI = Flask(__name__)
 
+
 @MJAPI.route("/get_image", methods=["POST"])
 def get_image():
     """
@@ -43,11 +44,12 @@ def get_image():
     except Exception as e:
         return str(e)
 
+
 def submit_imagine_mission(
-    prompt: str, 
-    base64Array: list = [], 
-    notifyHook: str = f"{midJourneyNotifyUrl}:{config_port}/get_image", 
-    state: str = ""):
+        prompt: str,
+        base64Array: list = [],
+        notifyHook: str = f"{midJourneyNotifyUrl}:{config_port}/get_image",
+        state: str = ""):
     """
     提交t2i任务
     Args:
