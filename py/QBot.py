@@ -1615,21 +1615,6 @@ def chat_completion(stream: False, messages: str = ""):
             messages=messages
             )
         return second_response
-    
-        '''
-        print(function_response)
-        messages.append(function_response["description"])
-        messages.append({
-            "role":"function",
-            "name": function_name,
-            "content": function_response["description"]
-        })
-        second_response = openai.ChatCompletion.create(
-            model="gpt-3.5-turbo-0613",
-            messages=messages,
-        ) 
-        return second_response
-        '''
         # resp["choices"][0]["message"] += (f"任务已提交, 描述为{function_args},请耐心等候图片生成")
     else:
         return resp

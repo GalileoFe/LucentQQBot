@@ -7,7 +7,8 @@
             "properties": {
                 "prompt": {
                     "type": "string",
-                    "description": "natural English prompts transfered to midjourey bot to imagine a picture, e.g. Cat and Dog"
+                    "description": "natural English prompts transfered to midjourey bot to imagine a picture, e.g. Cat and Dog",
+                    "extend_description":"you will use fluent English to describe a picture, add beautiful prompts for user's messages, and the midjourey bot will imagine a picture based on your description, and then you will draw the picture based on the midjourey bot's imagination."
                 }
             },
             "required": [
